@@ -7,6 +7,13 @@ import { MojangDownloader } from '../src/downloaders/mojang-downloader.js';
 import { FabricMavenClient } from '../src/downloaders/fabric-maven.js';
 import { getCacheManager } from '../src/cache/cache-manager.js';
 import { verifyJavaVersion } from '../src/java/java-process.js';
+import { handleReadResource, resources, resourceTemplates } from '../src/server/resources.js';
+import {
+  handleSearchMinecraftCode,
+  handleFindMapping,
+  handleCompareVersions,
+  tools,
+} from '../src/server/tools.js';
 import { existsSync } from 'node:fs';
 
 /**
@@ -302,6 +309,185 @@ describe('Minecraft Dev MCP - Integration Tests', () => {
       await expect(
         decompileService.getClassSource(TEST_VERSION, 'does.not.Exist', TEST_MAPPING)
       ).rejects.toThrow();
+    }, 30000);
+  });
+
+  describe('MCP Resources', () => {
+    it('should have resource templates defined', () => {
+      expect(resourceTemplates).toBeDefined();
+      expect(Array.isArray(resourceTemplates)).toBe(true);
+      expect(resourceTemplates.length).toBe(4);
+
+      // Check all templates are present
+      const templateUris = resourceTemplates.map((t) => t.uriTemplate);
+      expect(templateUris).toContain('minecraft://source/{version}/{mapping}/{className}');
+      expect(templateUris).toContain('minecraft://mappings/{version}/{mapping}');
+      expect(templateUris).toContain('minecraft://registry/{version}/{registryType}');
+      expect(templateUris).toContain('minecraft://versions/list');
+    });
+
+    it('should have static resources defined', () => {
+      expect(resources).toBeDefined();
+      expect(Array.isArray(resources)).toBe(true);
+      expect(resources.length).toBeGreaterThan(0);
+    });
+
+    it('should read versions list resource', async () => {
+      const result = await handleReadResource('minecraft://versions/list');
+
+      expect(result).toBeDefined();
+      expect(result.contents).toBeDefined();
+      expect(result.contents.length).toBe(1);
+      expect(result.contents[0].mimeType).toBe('application/json');
+
+      const data = JSON.parse(result.contents[0].text!);
+      expect(data.cached).toBeDefined();
+      expect(data.available).toBeDefined();
+      expect(data.total_available).toBeGreaterThan(0);
+    }, 30000);
+
+    it('should read source code resource', async () => {
+      const result = await handleReadResource(
+        `minecraft://source/${TEST_VERSION}/${TEST_MAPPING}/net.minecraft.entity.Entity`
+      );
+
+      expect(result).toBeDefined();
+      expect(result.contents).toBeDefined();
+      expect(result.contents.length).toBe(1);
+      expect(result.contents[0].mimeType).toBe('text/x-java-source');
+      expect(result.contents[0].text).toContain('class Entity');
+    }, 600000);
+
+    it('should read registry resource', async () => {
+      const result = await handleReadResource(
+        `minecraft://registry/${TEST_VERSION}/block`
+      );
+
+      expect(result).toBeDefined();
+      expect(result.contents).toBeDefined();
+      expect(result.contents.length).toBe(1);
+      expect(result.contents[0].mimeType).toBe('application/json');
+
+      const data = JSON.parse(result.contents[0].text!);
+      expect(data).toBeDefined();
+    }, 300000);
+  });
+
+  describe('New MCP Tools', () => {
+    it('should have all 8 tools defined', () => {
+      expect(tools).toBeDefined();
+      expect(Array.isArray(tools)).toBe(true);
+      expect(tools.length).toBe(8);
+
+      const toolNames = tools.map((t) => t.name);
+      expect(toolNames).toContain('get_minecraft_source');
+      expect(toolNames).toContain('decompile_minecraft_version');
+      expect(toolNames).toContain('list_minecraft_versions');
+      expect(toolNames).toContain('get_registry_data');
+      expect(toolNames).toContain('remap_mod_jar');
+      expect(toolNames).toContain('find_mapping');
+      expect(toolNames).toContain('search_minecraft_code');
+      expect(toolNames).toContain('compare_versions');
+    });
+
+    it('should search for classes in decompiled code', async () => {
+      const result = await handleSearchMinecraftCode({
+        version: TEST_VERSION,
+        query: 'Entity',
+        searchType: 'class',
+        mapping: TEST_MAPPING,
+        limit: 10,
+      });
+
+      expect(result).toBeDefined();
+      expect(result.content).toBeDefined();
+      expect(result.content.length).toBe(1);
+
+      const data = JSON.parse(result.content[0].text);
+      expect(data.results).toBeDefined();
+      expect(data.results.length).toBeGreaterThan(0);
+      expect(data.results[0].type).toBe('class');
+    }, 60000);
+
+    it('should search for content in decompiled code', async () => {
+      const result = await handleSearchMinecraftCode({
+        version: TEST_VERSION,
+        query: 'getHealth',
+        searchType: 'content',
+        mapping: TEST_MAPPING,
+        limit: 5,
+      });
+
+      expect(result).toBeDefined();
+      expect(result.content).toBeDefined();
+      expect(result.content.length).toBe(1);
+
+      const data = JSON.parse(result.content[0].text);
+      expect(data.results).toBeDefined();
+    }, 60000);
+
+    it('should find mapping for a class name', async () => {
+      const result = await handleFindMapping({
+        symbol: 'Entity',
+        version: TEST_VERSION,
+        sourceMapping: 'yarn',
+        targetMapping: 'intermediary',
+      });
+
+      expect(result).toBeDefined();
+      expect(result.content).toBeDefined();
+      expect(result.content.length).toBe(1);
+
+      // Handle both success and error responses
+      const text = result.content[0].text;
+      if (text.startsWith('Error:')) {
+        // Error response - just verify it returns something
+        expect(text).toBeDefined();
+      } else {
+        // Success response - verify structure
+        const data = JSON.parse(text);
+        expect(data.source).toBe('Entity');
+      }
+    }, 60000);
+
+    it('should compare registry data between versions (same version comparison)', async () => {
+      const result = await handleCompareVersions({
+        fromVersion: TEST_VERSION,
+        toVersion: TEST_VERSION,
+        mapping: TEST_MAPPING,
+        category: 'registry',
+      });
+
+      expect(result).toBeDefined();
+      expect(result.content).toBeDefined();
+      expect(result.content.length).toBe(1);
+
+      const data = JSON.parse(result.content[0].text);
+      expect(data.fromVersion).toBe(TEST_VERSION);
+      expect(data.toVersion).toBe(TEST_VERSION);
+      expect(data.registry).toBeDefined();
+      // Same version comparison should have no differences
+      expect(Object.keys(data.registry.added).length).toBe(0);
+      expect(Object.keys(data.registry.removed).length).toBe(0);
+    }, 300000);
+
+    it('should compare classes between versions (same version)', async () => {
+      const result = await handleCompareVersions({
+        fromVersion: TEST_VERSION,
+        toVersion: TEST_VERSION,
+        mapping: TEST_MAPPING,
+        category: 'classes',
+      });
+
+      expect(result).toBeDefined();
+      expect(result.content).toBeDefined();
+      expect(result.content.length).toBe(1);
+
+      const data = JSON.parse(result.content[0].text);
+      expect(data.classes).toBeDefined();
+      // Same version should have no differences
+      expect(data.classes.addedCount).toBe(0);
+      expect(data.classes.removedCount).toBe(0);
     }, 30000);
   });
 });

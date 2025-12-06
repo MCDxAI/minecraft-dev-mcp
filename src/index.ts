@@ -5,10 +5,18 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  ListResourcesRequestSchema,
+  ListResourceTemplatesRequestSchema,
+  ReadResourceRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { logger } from './utils/logger.js';
 import { verifyJavaVersion } from './java/java-process.js';
 import { tools, handleToolCall } from './server/tools.js';
+import {
+  resources,
+  resourceTemplates,
+  handleReadResource,
+} from './server/resources.js';
 import { closeDatabase } from './cache/database.js';
 
 /**
@@ -28,6 +36,7 @@ class MinecraftDevMCPServer {
       {
         capabilities: {
           tools: {},
+          resources: {},
         },
       },
     );
@@ -61,6 +70,31 @@ class MinecraftDevMCPServer {
           ],
           isError: true,
         };
+      }
+    });
+
+    // List available resources
+    this.server.setRequestHandler(ListResourcesRequestSchema, async () => {
+      logger.debug('Listing resources');
+      return { resources };
+    });
+
+    // List resource templates
+    this.server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
+      logger.debug('Listing resource templates');
+      return { resourceTemplates };
+    });
+
+    // Handle resource reads
+    this.server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+      logger.info(`Reading resource: ${request.params.uri}`);
+
+      try {
+        const result = await handleReadResource(request.params.uri);
+        return result;
+      } catch (error) {
+        logger.error(`Resource read failed: ${request.params.uri}`, error);
+        throw error;
       }
     });
   }

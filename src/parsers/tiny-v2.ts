@@ -54,7 +54,8 @@ export class TinyV2Parser {
   private header: TinyV2Header | null = null;
 
   constructor(content: string) {
-    this.lines = content.split('\n').map((line) => line.trim());
+    // Don't trim lines - leading tabs are significant in Tiny v2 format
+    this.lines = content.split('\n');
   }
 
   parse(): { header: TinyV2Header; classes: TinyV2Class[] } {
@@ -94,7 +95,8 @@ export class TinyV2Parser {
 
     while (this.currentLine < this.lines.length) {
       const line = this.lines[this.currentLine];
-      if (!line || line.startsWith('#')) {
+      const trimmedLine = line.trim();
+      if (!trimmedLine || trimmedLine.startsWith('#')) {
         this.currentLine++;
         continue;
       }
@@ -123,7 +125,8 @@ export class TinyV2Parser {
     // Parse fields and methods
     while (this.currentLine < this.lines.length) {
       const nextLine = this.lines[this.currentLine];
-      if (!nextLine || nextLine.startsWith('c\t')) {
+      const trimmedNextLine = nextLine.trim();
+      if (!trimmedNextLine || nextLine.startsWith('c\t')) {
         break;
       }
 
@@ -167,7 +170,8 @@ export class TinyV2Parser {
     // Parse parameters and local variables (if present)
     while (this.currentLine < this.lines.length) {
       const nextLine = this.lines[this.currentLine];
-      if (!nextLine || !nextLine.startsWith('\t\t')) {
+      const trimmedNextLine = nextLine.trim();
+      if (!trimmedNextLine || !nextLine.startsWith('\t\t')) {
         break;
       }
       this.currentLine++;

@@ -8,6 +8,7 @@ import AdmZip from 'adm-zip';
 import { writeFileSync } from 'node:fs';
 import { ensureDir } from '../utils/file-utils.js';
 import { dirname } from 'node:path';
+import { parseTinyV2 } from '../parsers/tiny-v2.js';
 
 /**
  * Manages mapping downloads and caching
@@ -128,6 +129,124 @@ export class MappingService {
     }
     // Mojmap should always exist for 1.21.1+
     // Intermediary should exist for all Fabric-supported versions
+  }
+
+  /**
+   * Lookup a symbol mapping between namespaces
+   * Searches for class, method, or field names and returns the translation
+   *
+   * Note: Tiny v2 files contain multiple namespaces. For yarn mappings,
+   * the namespaces are typically: official, intermediary, named
+   * So we can look up between any of these in a single file.
+   */
+  async lookupMapping(
+    version: string,
+    symbol: string,
+    sourceMapping: MappingType,
+    targetMapping: MappingType,
+  ): Promise<{
+    found: boolean;
+    type?: 'class' | 'method' | 'field';
+    source: string;
+    target?: string;
+    className?: string;
+  }> {
+    logger.info(`Looking up mapping: ${symbol} (${sourceMapping} -> ${targetMapping})`);
+
+    // Yarn mappings contain all namespaces (official, intermediary, named)
+    // So we can use yarn to translate between any of them
+    // Use yarn mappings as the primary lookup source
+    const mappingPath = await this.getMappings(version, 'yarn');
+    const mappingData = parseTinyV2(mappingPath);
+
+    // Determine namespace names
+    const sourceNamespace = this.getMappingNamespace(sourceMapping);
+    const targetNamespace = this.getMappingNamespace(targetMapping);
+
+    const sourceIndex = mappingData.header.namespaces.indexOf(sourceNamespace);
+    const targetIndex = mappingData.header.namespaces.indexOf(targetNamespace);
+
+    if (sourceIndex === -1) {
+      // Return not found instead of throwing
+      return {
+        found: false,
+        source: symbol,
+      };
+    }
+
+    if (targetIndex === -1) {
+      return {
+        found: false,
+        source: symbol,
+      };
+    }
+
+    // Search for the symbol
+    for (const cls of mappingData.classes) {
+      const sourceName = cls.names[sourceIndex];
+      const targetName = cls.names[targetIndex];
+
+      // Check class name match (support simple name or full path)
+      if (sourceName === symbol || sourceName.endsWith(`/${symbol}`) || sourceName.replace(/\//g, '.').endsWith(`.${symbol}`)) {
+        return {
+          found: true,
+          type: 'class',
+          source: sourceName,
+          target: targetName,
+        };
+      }
+
+      // Check method names
+      for (const method of cls.methods) {
+        const sourceMethodName = method.names[sourceIndex];
+        if (sourceMethodName === symbol) {
+          const targetMethodName = method.names[targetIndex];
+          return {
+            found: true,
+            type: 'method',
+            source: sourceMethodName,
+            target: targetMethodName,
+            className: sourceName,
+          };
+        }
+      }
+
+      // Check field names
+      for (const field of cls.fields) {
+        const sourceFieldName = field.names[sourceIndex];
+        if (sourceFieldName === symbol) {
+          const targetFieldName = field.names[targetIndex];
+          return {
+            found: true,
+            type: 'field',
+            source: sourceFieldName,
+            target: targetFieldName,
+            className: sourceName,
+          };
+        }
+      }
+    }
+
+    return {
+      found: false,
+      source: symbol,
+    };
+  }
+
+  /**
+   * Get the namespace name for a mapping type
+   */
+  private getMappingNamespace(mapping: MappingType): string {
+    switch (mapping) {
+      case 'yarn':
+        return 'named';
+      case 'intermediary':
+        return 'intermediary';
+      case 'mojmap':
+        return 'official'; // Mojmap uses obfuscated -> named, but we only have official
+      default:
+        return 'official';
+    }
   }
 }
 

@@ -74,7 +74,7 @@ export class RemapService {
     outputPath: string,
     onProgress?: (progress: string) => void,
   ): Promise<string> {
-    const { join, dirname } = await import('node:path');
+    const { join } = await import('node:path');
     const { tmpdir } = await import('node:os');
     const { mkdtempSync } = await import('node:fs');
 
@@ -145,6 +145,38 @@ export class RemapService {
    */
   hasRemappedJar(version: string, mapping: MappingType): boolean {
     return this.cache.hasRemappedJar(version, mapping);
+  }
+
+  /**
+   * Remap a mod JAR from intermediary to named mappings
+   * This is for remapping Fabric mod JARs to use human-readable names
+   */
+  async remapModJar(
+    inputJar: string,
+    outputJar: string,
+    mcVersion: string,
+    toMapping: MappingType,
+    onProgress?: (progress: string) => void,
+  ): Promise<string> {
+    logger.info(`Remapping mod JAR: ${inputJar} -> ${outputJar}`);
+
+    // Get mappings for the target mapping type
+    const mappingsFile = await this.mappingService.getMappings(mcVersion, toMapping);
+
+    // Fabric mods use intermediary names, so we remap from intermediary to named
+    const fromNamespace = 'intermediary';
+    const toNamespace = toMapping === 'intermediary' ? 'official' : 'named';
+
+    await this.tinyRemapper.remap(inputJar, outputJar, mappingsFile, {
+      fromNamespace,
+      toNamespace,
+      threads: 4,
+      rebuildSourceFilenames: true,
+      onProgress,
+    });
+
+    logger.info(`Mod JAR remapped: ${outputJar}`);
+    return outputJar;
   }
 }
 
