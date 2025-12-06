@@ -141,3 +141,95 @@ export class RegistryExtractionError extends MinecraftDevError {
     super(message || `Registry extraction failed for version ${version}`);
   }
 }
+
+/**
+ * Phase 2 Error Classes
+ */
+
+/**
+ * Mixin parsing failed
+ */
+export class MixinParseError extends MinecraftDevError {
+  constructor(
+    public filePath: string,
+    message?: string,
+  ) {
+    super(message || `Failed to parse mixin file: ${filePath}`);
+  }
+}
+
+/**
+ * Mixin validation failed
+ */
+export class MixinValidationError extends MinecraftDevError {
+  constructor(
+    public mixinClass: string,
+    public errors: string[],
+    message?: string,
+  ) {
+    super(message || `Mixin validation failed for ${mixinClass}: ${errors.join(', ')}`);
+  }
+}
+
+/**
+ * Access widener parsing failed
+ */
+export class AccessWidenerParseError extends MinecraftDevError {
+  constructor(
+    public filePath: string,
+    public line?: number,
+    message?: string,
+  ) {
+    super(message || `Failed to parse access widener: ${filePath}${line ? ` at line ${line}` : ''}`);
+  }
+}
+
+/**
+ * Access widener validation failed
+ */
+export class AccessWidenerValidationError extends MinecraftDevError {
+  constructor(
+    public filePath: string,
+    public errors: string[],
+    message?: string,
+  ) {
+    super(message || `Access widener validation failed: ${errors.join(', ')}`);
+  }
+}
+
+/**
+ * Search index error
+ */
+export class SearchIndexError extends MinecraftDevError {
+  constructor(
+    public version: string,
+    public mapping: string,
+    message?: string,
+  ) {
+    super(message || `Search index error for ${version}/${mapping}`);
+  }
+}
+
+/**
+ * Documentation fetch error
+ */
+export class DocumentationError extends MinecraftDevError {
+  constructor(
+    public className: string,
+    message?: string,
+  ) {
+    super(message || `Failed to fetch documentation for ${className}`);
+  }
+}
+
+/**
+ * AST parsing error
+ */
+export class AstParseError extends MinecraftDevError {
+  constructor(
+    public filePath: string,
+    message?: string,
+  ) {
+    super(message || `Failed to parse AST for ${filePath}`);
+  }
+}

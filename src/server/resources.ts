@@ -2,6 +2,8 @@ import { getDecompileService } from '../services/decompile-service.js';
 import { getMappingService } from '../services/mapping-service.js';
 import { getVersionManager } from '../services/version-manager.js';
 import { getRegistryService } from '../services/registry-service.js';
+import { getDocumentationService } from '../services/documentation-service.js';
+import { getSearchIndexService } from '../services/search-index-service.js';
 import { logger } from '../utils/logger.js';
 import { readFileSync, existsSync } from 'node:fs';
 import type { MappingType } from '../types/minecraft.js';
@@ -13,6 +15,7 @@ import type { MappingType } from '../types/minecraft.js';
 
 // Resource templates for discovery
 export const resourceTemplates = [
+  // Phase 1 resources
   {
     uriTemplate: 'minecraft://source/{version}/{mapping}/{className}',
     name: 'Minecraft Source Code',
@@ -37,14 +40,59 @@ export const resourceTemplates = [
     description: 'List of available and cached Minecraft versions',
     mimeType: 'application/json',
   },
+  // Phase 2 resources
+  {
+    uriTemplate: 'minecraft://docs/{className}',
+    name: 'Class Documentation',
+    description: 'Documentation for a Minecraft class (Fabric Wiki links, summaries)',
+    mimeType: 'application/json',
+  },
+  {
+    uriTemplate: 'minecraft://docs/topic/{topic}',
+    name: 'Topic Documentation',
+    description: 'Documentation for a Minecraft modding topic (mixin, blocks, entities, etc.)',
+    mimeType: 'application/json',
+  },
+  {
+    uriTemplate: 'minecraft://index/{version}/{mapping}',
+    name: 'Search Index Status',
+    description: 'Status of the full-text search index for a version',
+    mimeType: 'application/json',
+  },
+  {
+    uriTemplate: 'minecraft://index/list',
+    name: 'Indexed Versions',
+    description: 'List of all indexed Minecraft versions',
+    mimeType: 'application/json',
+  },
 ];
 
 // Fixed resources (always available)
 export const resources = [
+  // Phase 1 resources
   {
     uri: 'minecraft://versions/list',
     name: 'Minecraft Versions List',
     description: 'List of available and cached Minecraft versions',
+    mimeType: 'application/json',
+  },
+  // Phase 2 resources
+  {
+    uri: 'minecraft://index/list',
+    name: 'Indexed Versions List',
+    description: 'List of all indexed Minecraft versions for full-text search',
+    mimeType: 'application/json',
+  },
+  {
+    uri: 'minecraft://docs/topic/mixin',
+    name: 'Mixin Documentation',
+    description: 'Documentation and guide for using Mixins in Fabric mods',
+    mimeType: 'application/json',
+  },
+  {
+    uri: 'minecraft://docs/topic/accesswidener',
+    name: 'Access Widener Documentation',
+    description: 'Documentation and guide for Access Wideners in Fabric mods',
     mimeType: 'application/json',
   },
 ];
@@ -53,11 +101,12 @@ export const resources = [
  * Parse a minecraft:// URI
  */
 function parseMinecraftUri(uri: string): {
-  type: 'source' | 'mappings' | 'registry' | 'versions';
+  type: 'source' | 'mappings' | 'registry' | 'versions' | 'docs' | 'docs-topic' | 'index' | 'index-list';
   version?: string;
   mapping?: string;
   className?: string;
   registryType?: string;
+  topic?: string;
 } | null {
   const match = uri.match(/^minecraft:\/\/(.+)$/);
   if (!match) return null;
@@ -67,6 +116,11 @@ function parseMinecraftUri(uri: string): {
   // minecraft://versions/list
   if (path === 'versions/list') {
     return { type: 'versions' };
+  }
+
+  // minecraft://index/list
+  if (path === 'index/list') {
+    return { type: 'index-list' };
   }
 
   // minecraft://source/{version}/{mapping}/{className}
@@ -109,6 +163,34 @@ function parseMinecraftUri(uri: string): {
     };
   }
 
+  // minecraft://docs/topic/{topic}
+  const docsTopicMatch = path.match(/^docs\/topic\/(.+)$/);
+  if (docsTopicMatch) {
+    return {
+      type: 'docs-topic',
+      topic: docsTopicMatch[1],
+    };
+  }
+
+  // minecraft://docs/{className}
+  const docsMatch = path.match(/^docs\/(.+)$/);
+  if (docsMatch) {
+    return {
+      type: 'docs',
+      className: docsMatch[1],
+    };
+  }
+
+  // minecraft://index/{version}/{mapping}
+  const indexMatch = path.match(/^index\/([^/]+)\/([^/]+)$/);
+  if (indexMatch) {
+    return {
+      type: 'index',
+      version: indexMatch[1],
+      mapping: indexMatch[2],
+    };
+  }
+
   return null;
 }
 
@@ -134,6 +216,15 @@ export async function handleReadResource(uri: string): Promise<{
       return handleMappingsResource(uri, parsed.version!, parsed.mapping!);
     case 'registry':
       return handleRegistryResource(uri, parsed.version!, parsed.registryType);
+    // Phase 2 resources
+    case 'docs':
+      return handleDocsResource(uri, parsed.className!);
+    case 'docs-topic':
+      return handleDocsTopicResource(uri, parsed.topic!);
+    case 'index':
+      return handleIndexResource(uri, parsed.version!, parsed.mapping!);
+    case 'index-list':
+      return handleIndexListResource(uri);
     default:
       throw new Error(`Unknown resource type: ${parsed.type}`);
   }
@@ -242,6 +333,129 @@ async function handleRegistryResource(uri: string, version: string, registryType
         uri,
         mimeType: 'application/json',
         text: JSON.stringify(data, null, 2),
+      },
+    ],
+  };
+}
+
+// ============================================================================
+// Phase 2 Resource Handlers
+// ============================================================================
+
+/**
+ * Handle minecraft://docs/{className} resource
+ */
+async function handleDocsResource(uri: string, className: string) {
+  const docService = getDocumentationService();
+
+  const doc = await docService.getDocumentation(className);
+  const related = await docService.getRelatedDocumentation(className);
+
+  const data = {
+    className,
+    documentation: doc,
+    relatedDocumentation: related,
+  };
+
+  return {
+    contents: [
+      {
+        uri,
+        mimeType: 'application/json',
+        text: JSON.stringify(data, null, 2),
+      },
+    ],
+  };
+}
+
+/**
+ * Handle minecraft://docs/topic/{topic} resource
+ */
+async function handleDocsTopicResource(uri: string, topic: string) {
+  const docService = getDocumentationService();
+
+  // Handle special topics
+  if (topic === 'mixin') {
+    const data = docService.getMixinDocumentation();
+    return {
+      contents: [
+        {
+          uri,
+          mimeType: 'application/json',
+          text: JSON.stringify(data, null, 2),
+        },
+      ],
+    };
+  }
+
+  if (topic === 'accesswidener') {
+    const data = docService.getAccessWidenerDocumentation();
+    return {
+      contents: [
+        {
+          uri,
+          mimeType: 'application/json',
+          text: JSON.stringify(data, null, 2),
+        },
+      ],
+    };
+  }
+
+  // Generic topic lookup
+  const doc = await docService.getTopicDocumentation(topic);
+
+  return {
+    contents: [
+      {
+        uri,
+        mimeType: 'application/json',
+        text: JSON.stringify(doc, null, 2),
+      },
+    ],
+  };
+}
+
+/**
+ * Handle minecraft://index/{version}/{mapping} resource
+ */
+async function handleIndexResource(uri: string, version: string, mapping: string) {
+  const searchService = getSearchIndexService();
+
+  // Validate mapping type
+  if (mapping !== 'yarn' && mapping !== 'mojmap') {
+    throw new Error(`Invalid mapping type: ${mapping}. Must be 'yarn' or 'mojmap'`);
+  }
+
+  const stats = searchService.getStats(version, mapping as MappingType);
+
+  return {
+    contents: [
+      {
+        uri,
+        mimeType: 'application/json',
+        text: JSON.stringify(stats, null, 2),
+      },
+    ],
+  };
+}
+
+/**
+ * Handle minecraft://index/list resource
+ */
+async function handleIndexListResource(uri: string) {
+  const searchService = getSearchIndexService();
+
+  const indexed = searchService.listIndexedVersions();
+
+  return {
+    contents: [
+      {
+        uri,
+        mimeType: 'application/json',
+        text: JSON.stringify({
+          indexedVersions: indexed,
+          count: indexed.length,
+        }, null, 2),
       },
     ],
   };

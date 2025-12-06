@@ -4,6 +4,11 @@ import { getVersionManager } from '../services/version-manager.js';
 import { getRegistryService } from '../services/registry-service.js';
 import { getRemapService } from '../services/remap-service.js';
 import { getMappingService } from '../services/mapping-service.js';
+import { getMixinService } from '../services/mixin-service.js';
+import { getAccessWidenerService } from '../services/access-widener-service.js';
+import { getAstDiffService } from '../services/ast-diff-service.js';
+import { getSearchIndexService } from '../services/search-index-service.js';
+import { getDocumentationService } from '../services/documentation-service.js';
 import { getCacheManager } from '../cache/cache-manager.js';
 import { getDecompiledPath } from '../utils/paths.js';
 import { logger } from '../utils/logger.js';
@@ -56,6 +61,48 @@ const CompareVersionsSchema = z.object({
   toVersion: z.string().describe('Target Minecraft version'),
   mapping: z.enum(['yarn', 'mojmap']).describe('Mapping type to use'),
   category: z.enum(['classes', 'registry', 'all']).optional().describe('What to compare'),
+});
+
+// Phase 2 Tool Schemas
+const AnalyzeMixinSchema = z.object({
+  source: z.string().describe('Mixin source code (Java) or path to a JAR/directory'),
+  mcVersion: z.string().describe('Minecraft version to validate against'),
+  mapping: z.enum(['yarn', 'mojmap']).optional().describe('Mapping type (default: yarn)'),
+});
+
+const ValidateAccessWidenerSchema = z.object({
+  content: z.string().describe('Access widener file content or path to .accesswidener file'),
+  mcVersion: z.string().describe('Minecraft version to validate against'),
+  mapping: z.enum(['yarn', 'mojmap']).optional().describe('Mapping type (default: yarn)'),
+});
+
+const CompareVersionsDetailedSchema = z.object({
+  fromVersion: z.string().describe('Source Minecraft version'),
+  toVersion: z.string().describe('Target Minecraft version'),
+  mapping: z.enum(['yarn', 'mojmap']).describe('Mapping type to use'),
+  packages: z.array(z.string()).optional().describe('Specific packages to compare (e.g., ["net.minecraft.entity"])'),
+  maxClasses: z.number().optional().describe('Maximum classes to compare (default: 1000)'),
+});
+
+const IndexVersionSchema = z.object({
+  version: z.string().describe('Minecraft version to index'),
+  mapping: z.enum(['yarn', 'mojmap']).describe('Mapping type'),
+});
+
+const SearchIndexedSchema = z.object({
+  query: z.string().describe('Search query (supports FTS5 syntax)'),
+  version: z.string().describe('Minecraft version'),
+  mapping: z.enum(['yarn', 'mojmap']).describe('Mapping type'),
+  types: z.array(z.enum(['class', 'method', 'field'])).optional().describe('Entry types to search'),
+  limit: z.number().optional().describe('Maximum results (default: 100)'),
+});
+
+const GetDocumentationSchema = z.object({
+  className: z.string().describe('Class name to get documentation for'),
+});
+
+const SearchDocumentationSchema = z.object({
+  query: z.string().describe('Search query for documentation'),
 });
 
 // Tool definitions
@@ -255,6 +302,171 @@ export const tools = [
         },
       },
       required: ['fromVersion', 'toVersion', 'mapping'],
+    },
+  },
+  // Phase 2 Tools
+  {
+    name: 'analyze_mixin',
+    description:
+      'Analyze and validate Mixin code against Minecraft source. Parses @Mixin annotations, validates injection targets, and suggests fixes for issues.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        source: {
+          type: 'string',
+          description: 'Mixin source code (Java) or path to a JAR/directory containing mixins',
+        },
+        mcVersion: {
+          type: 'string',
+          description: 'Minecraft version to validate against',
+        },
+        mapping: {
+          type: 'string',
+          enum: ['yarn', 'mojmap'],
+          description: 'Mapping type (default: yarn)',
+        },
+      },
+      required: ['source', 'mcVersion'],
+    },
+  },
+  {
+    name: 'validate_access_widener',
+    description:
+      'Parse and validate Fabric Access Widener files against Minecraft source. Checks that targets exist and suggests fixes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        content: {
+          type: 'string',
+          description: 'Access widener file content or path to .accesswidener file',
+        },
+        mcVersion: {
+          type: 'string',
+          description: 'Minecraft version to validate against',
+        },
+        mapping: {
+          type: 'string',
+          enum: ['yarn', 'mojmap'],
+          description: 'Mapping type (default: yarn)',
+        },
+      },
+      required: ['content', 'mcVersion'],
+    },
+  },
+  {
+    name: 'compare_versions_detailed',
+    description:
+      'Compare two Minecraft versions with detailed AST-level analysis. Shows method signature changes, field changes, and breaking API changes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        fromVersion: {
+          type: 'string',
+          description: 'Source Minecraft version',
+        },
+        toVersion: {
+          type: 'string',
+          description: 'Target Minecraft version',
+        },
+        mapping: {
+          type: 'string',
+          enum: ['yarn', 'mojmap'],
+          description: 'Mapping type to use',
+        },
+        packages: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Specific packages to compare (e.g., ["net.minecraft.entity"])',
+        },
+        maxClasses: {
+          type: 'number',
+          description: 'Maximum classes to compare (default: 1000)',
+        },
+      },
+      required: ['fromVersion', 'toVersion', 'mapping'],
+    },
+  },
+  {
+    name: 'index_minecraft_version',
+    description:
+      'Create a full-text search index for decompiled Minecraft source. Enables fast searching with search_indexed tool.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        version: {
+          type: 'string',
+          description: 'Minecraft version to index',
+        },
+        mapping: {
+          type: 'string',
+          enum: ['yarn', 'mojmap'],
+          description: 'Mapping type',
+        },
+      },
+      required: ['version', 'mapping'],
+    },
+  },
+  {
+    name: 'search_indexed',
+    description:
+      'Fast full-text search using pre-built index. Much faster than search_minecraft_code for large queries. Requires index_minecraft_version first.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Search query (supports FTS5 syntax: AND, OR, NOT, "phrase", prefix*)',
+        },
+        version: {
+          type: 'string',
+          description: 'Minecraft version',
+        },
+        mapping: {
+          type: 'string',
+          enum: ['yarn', 'mojmap'],
+          description: 'Mapping type',
+        },
+        types: {
+          type: 'array',
+          items: { type: 'string', enum: ['class', 'method', 'field'] },
+          description: 'Entry types to search',
+        },
+        limit: {
+          type: 'number',
+          description: 'Maximum results (default: 100)',
+        },
+      },
+      required: ['query', 'version', 'mapping'],
+    },
+  },
+  {
+    name: 'get_documentation',
+    description:
+      'Get documentation for a Minecraft class or concept. Links to Fabric Wiki, Minecraft Wiki, and provides usage hints.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        className: {
+          type: 'string',
+          description: 'Class name to get documentation for',
+        },
+      },
+      required: ['className'],
+    },
+  },
+  {
+    name: 'search_documentation',
+    description:
+      'Search for documentation across all known Minecraft/Fabric topics.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Search query',
+        },
+      },
+      required: ['query'],
     },
   },
 ];
@@ -754,6 +966,320 @@ export async function handleCompareVersions(args: unknown) {
   }
 }
 
+// Phase 2 Tool Handlers
+
+// Handler for analyze_mixin
+export async function handleAnalyzeMixin(args: unknown) {
+  const { source, mcVersion, mapping = 'yarn' } = AnalyzeMixinSchema.parse(args);
+
+  logger.info(`Analyzing mixin for MC ${mcVersion} (${mapping})`);
+
+  const mixinService = getMixinService();
+
+  try {
+    // Check if source is a file path or actual source code
+    let mixin;
+    if (existsSync(source)) {
+      // It's a path - could be JAR, directory, or single file
+      if (source.endsWith('.jar')) {
+        const mixins = await mixinService.parseMixinsFromJar(source);
+        if (mixins.length === 0) {
+          return {
+            content: [{ type: 'text', text: 'No mixins found in JAR file' }],
+          };
+        }
+
+        // Validate all mixins
+        const results = await Promise.all(
+          mixins.map(m => mixinService.validateMixin(m, mcVersion, mapping as MappingType))
+        );
+
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              totalMixins: mixins.length,
+              validMixins: results.filter(r => r.isValid).length,
+              invalidMixins: results.filter(r => !r.isValid).length,
+              results,
+            }, null, 2),
+          }],
+        };
+      } else if (source.endsWith('.java')) {
+        const sourceCode = readFileSync(source, 'utf8');
+        mixin = mixinService.parseMixinSource(sourceCode, source);
+      } else {
+        // Assume directory
+        const mixins = mixinService.parseMixinsFromDirectory(source);
+        const results = await Promise.all(
+          mixins.map(m => mixinService.validateMixin(m, mcVersion, mapping as MappingType))
+        );
+
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              totalMixins: mixins.length,
+              validMixins: results.filter(r => r.isValid).length,
+              invalidMixins: results.filter(r => !r.isValid).length,
+              results,
+            }, null, 2),
+          }],
+        };
+      }
+    } else {
+      // Assume it's source code
+      mixin = mixinService.parseMixinSource(source);
+    }
+
+    if (!mixin) {
+      return {
+        content: [{ type: 'text', text: 'No @Mixin annotation found in source' }],
+        isError: true,
+      };
+    }
+
+    const result = await mixinService.validateMixin(mixin, mcVersion, mapping as MappingType);
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify(result, null, 2),
+      }],
+    };
+  } catch (error) {
+    logger.error('Failed to analyze mixin', error);
+    return {
+      content: [{ type: 'text', text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}` }],
+      isError: true,
+    };
+  }
+}
+
+// Handler for validate_access_widener
+export async function handleValidateAccessWidener(args: unknown) {
+  const { content, mcVersion, mapping = 'yarn' } = ValidateAccessWidenerSchema.parse(args);
+
+  logger.info(`Validating access widener for MC ${mcVersion} (${mapping})`);
+
+  const awService = getAccessWidenerService();
+
+  try {
+    let accessWidener;
+
+    // Check if content is a file path
+    if (existsSync(content)) {
+      accessWidener = awService.parseAccessWidenerFile(content);
+    } else {
+      accessWidener = awService.parseAccessWidener(content);
+    }
+
+    const validation = await awService.validateAccessWidener(
+      accessWidener,
+      mcVersion,
+      mapping as MappingType
+    );
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          accessWidener: {
+            namespace: accessWidener.namespace,
+            version: accessWidener.version,
+            entryCount: accessWidener.entries.length,
+          },
+          validation,
+        }, null, 2),
+      }],
+    };
+  } catch (error) {
+    logger.error('Failed to validate access widener', error);
+    return {
+      content: [{ type: 'text', text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}` }],
+      isError: true,
+    };
+  }
+}
+
+// Handler for compare_versions_detailed
+export async function handleCompareVersionsDetailed(args: unknown) {
+  const { fromVersion, toVersion, mapping, packages, maxClasses } = CompareVersionsDetailedSchema.parse(args);
+
+  logger.info(`Comparing ${fromVersion} vs ${toVersion} (detailed, ${mapping})`);
+
+  const astDiffService = getAstDiffService();
+
+  try {
+    const diff = await astDiffService.compareVersionsDetailed(
+      fromVersion,
+      toVersion,
+      mapping as MappingType,
+      { packages, maxClasses }
+    );
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify(diff, null, 2),
+      }],
+    };
+  } catch (error) {
+    logger.error('Failed to compare versions', error);
+    return {
+      content: [{ type: 'text', text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}` }],
+      isError: true,
+    };
+  }
+}
+
+// Handler for index_minecraft_version
+export async function handleIndexVersion(args: unknown) {
+  const { version, mapping } = IndexVersionSchema.parse(args);
+
+  logger.info(`Indexing ${version}/${mapping}`);
+
+  const searchService = getSearchIndexService();
+
+  try {
+    // Check if already indexed
+    if (searchService.isIndexed(version, mapping as MappingType)) {
+      const stats = searchService.getStats(version, mapping as MappingType);
+      return {
+        content: [{
+          type: 'text',
+          text: `Version ${version}/${mapping} is already indexed.\n\nStats:\n${JSON.stringify(stats, null, 2)}`,
+        }],
+      };
+    }
+
+    const result = await searchService.indexVersion(
+      version,
+      mapping as MappingType,
+      (current, total, className) => {
+        if (current % 100 === 0) {
+          logger.info(`Indexing: ${current}/${total} - ${className}`);
+        }
+      }
+    );
+
+    return {
+      content: [{
+        type: 'text',
+        text: `Indexing complete!\n\nFiles indexed: ${result.fileCount}\nDuration: ${result.duration}ms`,
+      }],
+    };
+  } catch (error) {
+    logger.error('Failed to index version', error);
+    return {
+      content: [{ type: 'text', text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}` }],
+      isError: true,
+    };
+  }
+}
+
+// Handler for search_indexed
+export async function handleSearchIndexed(args: unknown) {
+  const { query, version, mapping, types, limit = 100 } = SearchIndexedSchema.parse(args);
+
+  logger.info(`Searching indexed: ${query} in ${version}/${mapping}`);
+
+  const searchService = getSearchIndexService();
+
+  try {
+    const results = searchService.search(
+      query,
+      version,
+      mapping as MappingType,
+      { types: types as Array<'class' | 'method' | 'field'>, limit }
+    );
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          query,
+          version,
+          mapping,
+          count: results.length,
+          results,
+        }, null, 2),
+      }],
+    };
+  } catch (error) {
+    logger.error('Failed to search', error);
+    return {
+      content: [{ type: 'text', text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}` }],
+      isError: true,
+    };
+  }
+}
+
+// Handler for get_documentation
+export async function handleGetDocumentation(args: unknown) {
+  const { className } = GetDocumentationSchema.parse(args);
+
+  logger.info(`Getting documentation for ${className}`);
+
+  const docService = getDocumentationService();
+
+  try {
+    const docs = await docService.getRelatedDocumentation(className);
+
+    if (docs.length === 0) {
+      return {
+        content: [{
+          type: 'text',
+          text: `No documentation found for ${className}`,
+        }],
+      };
+    }
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify(docs, null, 2),
+      }],
+    };
+  } catch (error) {
+    logger.error('Failed to get documentation', error);
+    return {
+      content: [{ type: 'text', text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}` }],
+      isError: true,
+    };
+  }
+}
+
+// Handler for search_documentation
+export async function handleSearchDocumentation(args: unknown) {
+  const { query } = SearchDocumentationSchema.parse(args);
+
+  logger.info(`Searching documentation: ${query}`);
+
+  const docService = getDocumentationService();
+
+  try {
+    const results = docService.searchDocumentation(query);
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          query,
+          count: results.length,
+          results,
+        }, null, 2),
+      }],
+    };
+  } catch (error) {
+    logger.error('Failed to search documentation', error);
+    return {
+      content: [{ type: 'text', text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}` }],
+      isError: true,
+    };
+  }
+}
+
 // Tool router
 export async function handleToolCall(name: string, args: unknown) {
   switch (name) {
@@ -773,6 +1299,21 @@ export async function handleToolCall(name: string, args: unknown) {
       return handleSearchMinecraftCode(args);
     case 'compare_versions':
       return handleCompareVersions(args);
+    // Phase 2 tools
+    case 'analyze_mixin':
+      return handleAnalyzeMixin(args);
+    case 'validate_access_widener':
+      return handleValidateAccessWidener(args);
+    case 'compare_versions_detailed':
+      return handleCompareVersionsDetailed(args);
+    case 'index_minecraft_version':
+      return handleIndexVersion(args);
+    case 'search_indexed':
+      return handleSearchIndexed(args);
+    case 'get_documentation':
+      return handleGetDocumentation(args);
+    case 'search_documentation':
+      return handleSearchDocumentation(args);
     default:
       throw new Error(`Unknown tool: ${name}`);
   }

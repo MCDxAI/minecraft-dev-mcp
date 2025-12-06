@@ -316,9 +316,10 @@ describe('Minecraft Dev MCP - Integration Tests', () => {
     it('should have resource templates defined', () => {
       expect(resourceTemplates).toBeDefined();
       expect(Array.isArray(resourceTemplates)).toBe(true);
-      expect(resourceTemplates.length).toBe(4);
+      // Phase 1: 4 templates, Phase 2: 4 templates = 8 total
+      expect(resourceTemplates.length).toBe(8);
 
-      // Check all templates are present
+      // Check Phase 1 templates are present
       const templateUris = resourceTemplates.map((t) => t.uriTemplate);
       expect(templateUris).toContain('minecraft://source/{version}/{mapping}/{className}');
       expect(templateUris).toContain('minecraft://mappings/{version}/{mapping}');
@@ -374,12 +375,14 @@ describe('Minecraft Dev MCP - Integration Tests', () => {
   });
 
   describe('New MCP Tools', () => {
-    it('should have all 8 tools defined', () => {
+    it('should have all Phase 1 tools defined (8 tools)', () => {
       expect(tools).toBeDefined();
       expect(Array.isArray(tools)).toBe(true);
-      expect(tools.length).toBe(8);
+      // Phase 1: 8 tools, Phase 2: 7 tools = 15 total
+      expect(tools.length).toBe(15);
 
       const toolNames = tools.map((t) => t.name);
+      // Phase 1 tools
       expect(toolNames).toContain('get_minecraft_source');
       expect(toolNames).toContain('decompile_minecraft_version');
       expect(toolNames).toContain('list_minecraft_versions');
