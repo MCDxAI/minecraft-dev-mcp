@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "minecraft-dev": {
+      "command": "node",
+      "args": ["./dist/index.js"],
+      "env": {
+        "LOG_LEVEL": "INFO"
+      }
+    }
+  }
+}

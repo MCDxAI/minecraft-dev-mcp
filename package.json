@@ -1,0 +1,49 @@
+{
+  "name": "@minecraft-dev/mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server for Minecraft mod development - decompile, remap, and explore Minecraft source code",
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "minecraft-dev-mcp": "./dist/index.js"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "clean": "rimraf dist"
+  },
+  "keywords": [
+    "minecraft",
+    "fabric",
+    "mod-development",
+    "mcp",
+    "decompiler",
+    "mappings"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "adm-zip": "^0.5.16",
+    "better-sqlite3": "^11.7.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/adm-zip": "^0.5.5",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.10.1",
+    "rimraf": "^6.0.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

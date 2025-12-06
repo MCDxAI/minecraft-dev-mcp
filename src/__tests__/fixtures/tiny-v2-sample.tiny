@@ -1,0 +1,9 @@
+tiny	2	0	intermediary	named
+c	net/minecraft/class_1234	net/minecraft/world/entity/Entity
+	f	Lnet/minecraft/class_5678;	field_1111	uuid
+	m	()V	method_2222	tick
+c	net/minecraft/class_5678	net/minecraft/util/math/Vec3d
+	f	D	field_3333	x
+	f	D	field_4444	y
+	f	D	field_5555	z
+	m	(DDD)V	method_6666	<init>

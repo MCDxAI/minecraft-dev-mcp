@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Cache and logs
+*.log
+.cache/
+cache.db
+cache.db-journal
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test coverage
+coverage/
+
+# Environment
+.env
+.env.local
+
+# MCP cache (for development)
+dev-cache/
+
+# VineFlower temporary files (created during decompilation)
+libraries/
+versions/
+logs/
+
+# AI reference materials
+ai_reference/

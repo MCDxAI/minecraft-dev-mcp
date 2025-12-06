@@ -1,0 +1,9 @@
+net.minecraft.a.b.c -> net.minecraft.world.entity.Entity:
+    java.util.UUID d -> uuid
+    void e() -> tick
+    int f -> getId
+net.minecraft.x.y.z -> net.minecraft.util.math.Vec3d:
+    double a -> x
+    double b -> y
+    double c -> z
+    void <init>(double,double,double) -> <init>

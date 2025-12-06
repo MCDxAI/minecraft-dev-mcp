@@ -1,0 +1,130 @@
+#!/usr/bin/env node
+
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+} from '@modelcontextprotocol/sdk/types.js';
+import { logger } from './utils/logger.js';
+import { verifyJavaVersion } from './java/java-process.js';
+import { tools, handleToolCall } from './server/tools.js';
+import { closeDatabase } from './cache/database.js';
+
+/**
+ * Minecraft Dev MCP Server
+ * Provides decompiled Minecraft source code access for LLM-assisted mod development
+ */
+
+class MinecraftDevMCPServer {
+  private server: Server;
+
+  constructor() {
+    this.server = new Server(
+      {
+        name: 'minecraft-dev-mcp',
+        version: '1.0.0',
+      },
+      {
+        capabilities: {
+          tools: {},
+        },
+      },
+    );
+
+    this.setupHandlers();
+    this.setupErrorHandling();
+  }
+
+  private setupHandlers(): void {
+    // List available tools
+    this.server.setRequestHandler(ListToolsRequestSchema, async () => {
+      logger.debug('Listing tools');
+      return { tools };
+    });
+
+    // Handle tool calls
+    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+      logger.info(`Tool called: ${request.params.name}`);
+
+      try {
+        const result = await handleToolCall(request.params.name, request.params.arguments);
+        return result;
+      } catch (error) {
+        logger.error(`Tool execution failed: ${request.params.name}`, error);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Error executing tool: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    });
+  }
+
+  private setupErrorHandling(): void {
+    // Handle server errors
+    this.server.onerror = (error) => {
+      logger.error('Server error', error);
+    };
+
+    // Handle process errors
+    process.on('uncaughtException', (error) => {
+      logger.error('Uncaught exception', error);
+      this.cleanup();
+      process.exit(1);
+    });
+
+    process.on('unhandledRejection', (reason) => {
+      logger.error('Unhandled rejection', reason);
+    });
+
+    // Handle shutdown
+    process.on('SIGINT', () => {
+      logger.info('Received SIGINT, shutting down gracefully');
+      this.cleanup();
+      process.exit(0);
+    });
+
+    process.on('SIGTERM', () => {
+      logger.info('Received SIGTERM, shutting down gracefully');
+      this.cleanup();
+      process.exit(0);
+    });
+  }
+
+  private cleanup(): void {
+    logger.info('Cleaning up resources');
+    closeDatabase();
+  }
+
+  async start(): Promise<void> {
+    // Verify Java installation
+    try {
+      await verifyJavaVersion(17);
+    } catch (error) {
+      logger.error('Java verification failed', error);
+      console.error('\n❌ Java 17+ is required but not found or not working.');
+      console.error('Please install Java 17 or higher and ensure it is in your PATH.\n');
+      process.exit(1);
+    }
+
+    // Start server with stdio transport
+    const transport = new StdioServerTransport();
+    await this.server.connect(transport);
+
+    logger.info('Minecraft Dev MCP Server started');
+    logger.info('Server is ready to accept requests');
+  }
+}
+
+// Start the server
+const server = new MinecraftDevMCPServer();
+server.start().catch((error) => {
+  logger.error('Failed to start server', error);
+  console.error('Failed to start server:', error);
+  process.exit(1);
+});
