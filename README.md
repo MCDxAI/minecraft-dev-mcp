@@ -14,8 +14,6 @@ A comprehensive Model Context Protocol (MCP) server that provides LLMs with the 
 
 </div>
 
----
-
 <div align="center">
 
 ## Core Capabilities
@@ -53,8 +51,6 @@ A comprehensive Model Context Protocol (MCP) server that provides LLMs with the 
 
 </div>
 
----
-
 <div align="center">
 
 ## Prerequisites
@@ -76,8 +72,6 @@ A comprehensive Model Context Protocol (MCP) server that provides LLMs with the 
 
 </div>
 
----
-
 <div align="center">
 
 ## Installation
@@ -90,13 +84,13 @@ A comprehensive Model Context Protocol (MCP) server that provides LLMs with the 
   <tr>
     <td><b>NPM (Recommended)</b></td>
     <td>
-      <pre style="text-align: left;">npm install -g @minecraft-dev/mcp-server</pre>
+      <pre>npm install -g @minecraft-dev/mcp-server</pre>
     </td>
   </tr>
   <tr>
     <td><b>From Source</b></td>
     <td>
-      <pre style="text-align: left;">git clone https://github.com/your-org/minecraft-dev-mcp.git
+      <pre>git clone https://github.com/your-org/minecraft-dev-mcp.git
 cd minecraft-dev-mcp
 npm install
 npm run build</pre>
@@ -105,8 +99,6 @@ npm run build</pre>
 </table>
 
 </div>
-
----
 
 <div align="center">
 
@@ -118,7 +110,11 @@ npm run build</pre>
 
 ### 1. Configure Claude Desktop
 
+</div>
+
 Add to your Claude Desktop config file:
+
+<div align="center">
 
 <table>
   <tr>
@@ -139,11 +135,13 @@ Add to your Claude Desktop config file:
   </tr>
 </table>
 
+</div>
+
 <br>
 
 **NPM Installation:**
 
-<pre style="text-align: left;">{
+<pre>{
   "mcpServers": {
     "minecraft-dev": {
       "command": "minecraft-dev-mcp"
@@ -153,7 +151,7 @@ Add to your Claude Desktop config file:
 
 **Source Installation:**
 
-<pre style="text-align: left;">{
+<pre>{
   "mcpServers": {
     "minecraft-dev": {
       "command": "node",
@@ -162,21 +160,23 @@ Add to your Claude Desktop config file:
   }
 }</pre>
 
-</div>
-
 <div align="center">
 
 ### 2. Restart Claude Desktop
 
-Restart Claude Desktop to load the MCP server.
-
 </div>
+
+Restart Claude Desktop to load the MCP server.
 
 <div align="center">
 
 ### 3. Start Using
 
+</div>
+
 In Claude Desktop, you can now ask questions like:
+
+<div align="center">
 
 <table>
   <tr>
@@ -192,8 +192,6 @@ In Claude Desktop, you can now ask questions like:
 
 </div>
 
----
-
 <div align="center">
 
 ## Available Tools
@@ -204,7 +202,11 @@ In Claude Desktop, you can now ask questions like:
 
 ### get_minecraft_source
 
+</div>
+
 Get decompiled source code for a specific class.
+
+<div align="center">
 
 <table>
   <tr>
@@ -229,21 +231,25 @@ Get decompiled source code for a specific class.
   </tr>
 </table>
 
+</div>
+
 **Example:**
 
-<pre style="text-align: left;">{
+<pre>{
   "version": "1.21.10",
   "className": "net.minecraft.world.entity.Entity",
   "mapping": "yarn"
 }</pre>
 
-</div>
-
 <div align="center">
 
 ### decompile_minecraft_version
 
+</div>
+
 Decompile an entire Minecraft version (runs once, then cached).
+
+<div align="center">
 
 <table>
   <tr>
@@ -268,36 +274,40 @@ Decompile an entire Minecraft version (runs once, then cached).
   </tr>
 </table>
 
+</div>
+
 **Example:**
 
-<pre style="text-align: left;">{
+<pre>{
   "version": "1.21.10",
   "mapping": "yarn"
 }</pre>
-
-</div>
 
 <div align="center">
 
 ### list_minecraft_versions
 
+</div>
+
 List available and cached Minecraft versions.
 
 **Returns:**
 
-<pre style="text-align: left;">{
+<pre>{
   "cached": ["1.21.10"],
   "available": ["1.21.10", "1.21.9", "..."],
   "total_available": 800
 }</pre>
 
-</div>
-
 <div align="center">
 
 ### get_registry_data
 
+</div>
+
 Get Minecraft registry data (blocks, items, entities, etc.).
+
+<div align="center">
 
 <table>
   <tr>
@@ -317,16 +327,14 @@ Get Minecraft registry data (blocks, items, entities, etc.).
   </tr>
 </table>
 
+</div>
+
 **Example:**
 
-<pre style="text-align: left;">{
+<pre>{
   "version": "1.21.10",
   "registry": "blocks"
 }</pre>
-
-</div>
-
----
 
 <div align="center">
 
@@ -338,7 +346,11 @@ Get Minecraft registry data (blocks, items, entities, etc.).
 
 ### Cache Structure
 
+</div>
+
 All data is cached in a platform-specific directory:
+
+<div align="center">
 
 <table>
   <tr>
@@ -359,9 +371,13 @@ All data is cached in a platform-specific directory:
   </tr>
 </table>
 
+</div>
+
 <br>
 
 **Cache Layout:**
+
+<div align="center">
 
 <table>
   <tr>
@@ -402,13 +418,13 @@ All data is cached in a platform-specific directory:
   </tr>
 </table>
 
+</div>
+
 <br>
 
 **Cache Size:**
 - ~400-500 MB per Minecraft version (JAR + mappings + decompiled source)
 - Vineflower + tiny-remapper: ~1 MB (one-time download)
-
-</div>
 
 <div align="center">
 
@@ -447,8 +463,6 @@ All data is cached in a platform-specific directory:
 
 </div>
 
----
-
 <div align="center">
 
 ## Configuration
@@ -458,6 +472,10 @@ All data is cached in a platform-specific directory:
 <div align="center">
 
 ### Environment Variables
+
+</div>
+
+<div align="center">
 
 <table>
   <tr>
@@ -474,9 +492,11 @@ All data is cached in a platform-specific directory:
   </tr>
 </table>
 
+</div>
+
 **Example:**
 
-<pre style="text-align: left;">{
+<pre>{
   "mcpServers": {
     "minecraft-dev": {
       "command": "minecraft-dev-mcp",
@@ -488,10 +508,6 @@ All data is cached in a platform-specific directory:
   }
 }</pre>
 
-</div>
-
----
-
 <div align="center">
 
 ## Workflow Examples
@@ -502,7 +518,11 @@ All data is cached in a platform-specific directory:
 
 ### Example 1: First-Time Decompilation
 
+</div>
+
 When you request source code for the first time:
+
+<div align="center">
 
 <table>
   <tr>
@@ -537,15 +557,19 @@ When you request source code for the first time:
   </tr>
 </table>
 
-**Total:** ~5 minutes first time
-
 </div>
+
+**Total:** ~5 minutes first time
 
 <div align="center">
 
 ### Example 2: Subsequent Requests (Cached)
 
+</div>
+
 When you request another class from the same version:
+
+<div align="center">
 
 <table>
   <tr>
@@ -565,11 +589,9 @@ When you request another class from the same version:
   </tr>
 </table>
 
-**Total:** ~50ms (instant)
-
 </div>
 
----
+**Total:** ~50ms (instant)
 
 <div align="center">
 
@@ -612,8 +634,6 @@ When you request another class from the same version:
 
 </div>
 
----
-
 <div align="center">
 
 ## Development
@@ -630,7 +650,7 @@ When you request another class from the same version:
   <tr>
     <td><b>Build from Source</b></td>
     <td>
-      <pre style="text-align: left;">git clone https://github.com/your-org/minecraft-dev-mcp.git
+      <pre>git clone https://github.com/your-org/minecraft-dev-mcp.git
 cd minecraft-dev-mcp
 npm install
 npm run build</pre>
@@ -656,8 +676,6 @@ npm run build</pre>
 
 </div>
 
----
-
 <div align="center">
 
 ## Performance
@@ -667,6 +685,10 @@ npm run build</pre>
 <div align="center">
 
 ### Benchmarks (Minecraft 1.21.10 with Yarn)
+
+</div>
+
+<div align="center">
 
 <table>
   <tr>
@@ -701,17 +723,19 @@ npm run build</pre>
   </tr>
 </table>
 
-**Hardware:** Intel i7-12700K, 32GB RAM, SSD
-
 </div>
 
----
+**Hardware:** Intel i7-12700K, 32GB RAM, SSD
 
 <div align="center">
 
 ## Contributing
 
+</div>
+
 Contributions welcome! Please see [ARCHITECTURE.md](./ARCHITECTURE.md) for system design details.
+
+<div align="center">
 
 <table>
   <tr>
@@ -742,21 +766,21 @@ Contributions welcome! Please see [ARCHITECTURE.md](./ARCHITECTURE.md) for syste
 
 </div>
 
----
-
 <div align="center">
 
 ## License
 
-MIT License - see [LICENSE](./LICENSE) file for details
-
 </div>
 
----
+MIT License - see [LICENSE](./LICENSE) file for details
 
 <div align="center">
 
 ## Credits
+
+</div>
+
+<div align="center">
 
 <table>
   <tr>
@@ -783,11 +807,13 @@ MIT License - see [LICENSE](./LICENSE) file for details
 
 </div>
 
----
-
 <div align="center">
 
 ## Support
+
+</div>
+
+<div align="center">
 
 <table>
   <tr>
@@ -809,8 +835,6 @@ MIT License - see [LICENSE](./LICENSE) file for details
 </table>
 
 </div>
-
----
 
 <div align="center">
 
