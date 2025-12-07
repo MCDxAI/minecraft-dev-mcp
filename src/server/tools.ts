@@ -9,6 +9,7 @@ import { getAccessWidenerService } from '../services/access-widener-service.js';
 import { getAstDiffService } from '../services/ast-diff-service.js';
 import { getSearchIndexService } from '../services/search-index-service.js';
 import { getDocumentationService } from '../services/documentation-service.js';
+import { getModAnalyzerService } from '../services/mod-analyzer-service.js';
 import { getCacheManager } from '../cache/cache-manager.js';
 import { getDecompiledPath } from '../utils/paths.js';
 import { logger } from '../utils/logger.js';
@@ -103,6 +104,13 @@ const GetDocumentationSchema = z.object({
 
 const SearchDocumentationSchema = z.object({
   query: z.string().describe('Search query for documentation'),
+});
+
+// Phase 3 Tool Schemas
+const AnalyzeModJarSchema = z.object({
+  jarPath: z.string().describe('Local file path to the mod JAR file'),
+  includeAllClasses: z.boolean().optional().describe('Include all classes in output (can be large, default: false)'),
+  includeRawMetadata: z.boolean().optional().describe('Include raw metadata files (default: false)'),
 });
 
 // Tool definitions
@@ -467,6 +475,30 @@ export const tools = [
         },
       },
       required: ['query'],
+    },
+  },
+  // Phase 3 Tools
+  {
+    name: 'analyze_mod_jar',
+    description:
+      'Analyze a third-party mod JAR file to extract metadata, dependencies, entry points, mixins, and class information. Supports Fabric, Quilt, Forge, and NeoForge mods. Returns comprehensive mod analysis including: mod ID, version, Minecraft compatibility, dependencies, entry points, mixin configurations, and class statistics.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        jarPath: {
+          type: 'string',
+          description: 'Local file path to the mod JAR file to analyze',
+        },
+        includeAllClasses: {
+          type: 'boolean',
+          description: 'Include full class list in output (can be large). Default: false',
+        },
+        includeRawMetadata: {
+          type: 'boolean',
+          description: 'Include raw metadata files (fabric.mod.json, mixin configs). Default: false',
+        },
+      },
+      required: ['jarPath'],
     },
   },
 ];
@@ -1280,6 +1312,49 @@ export async function handleSearchDocumentation(args: unknown) {
   }
 }
 
+// Phase 3 Tool Handlers
+
+// Handler for analyze_mod_jar
+export async function handleAnalyzeModJar(args: unknown) {
+  const { jarPath, includeAllClasses, includeRawMetadata } = AnalyzeModJarSchema.parse(args);
+
+  logger.info(`Analyzing mod JAR: ${jarPath}`);
+
+  const modAnalyzer = getModAnalyzerService();
+
+  try {
+    // Check file exists
+    if (!existsSync(jarPath)) {
+      return {
+        content: [{
+          type: 'text',
+          text: `Error: JAR file not found: ${jarPath}`,
+        }],
+        isError: true,
+      };
+    }
+
+    const result = await modAnalyzer.analyzeMod(jarPath, {
+      includeAllClasses,
+      includeRawMetadata,
+      analyzeBytecode: true,
+    });
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify(result, null, 2),
+      }],
+    };
+  } catch (error) {
+    logger.error('Failed to analyze mod JAR', error);
+    return {
+      content: [{ type: 'text', text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}` }],
+      isError: true,
+    };
+  }
+}
+
 // Tool router
 export async function handleToolCall(name: string, args: unknown) {
   switch (name) {
@@ -1314,6 +1389,9 @@ export async function handleToolCall(name: string, args: unknown) {
       return handleGetDocumentation(args);
     case 'search_documentation':
       return handleSearchDocumentation(args);
+    // Phase 3 tools
+    case 'analyze_mod_jar':
+      return handleAnalyzeModJar(args);
     default:
       throw new Error(`Unknown tool: ${name}`);
   }

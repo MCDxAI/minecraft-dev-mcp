@@ -269,6 +269,77 @@ The code should work automatically, but be aware:
 ### "Java version" errors
 → MC 1.18+ requires Java 17+, MC 1.21+ requires Java 21+.
 
+## MCP Tools Reference
+
+### Phase 1 Tools (Core)
+1. **`get_minecraft_source`** - Get decompiled source for a Minecraft class
+2. **`decompile_minecraft_version`** - Trigger full decompilation of a version
+3. **`list_minecraft_versions`** - List available and cached versions
+4. **`get_registry_data`** - Get registry data (blocks, items, entities)
+
+### Phase 2 Tools (Advanced Analysis)
+5. **`remap_mod_jar`** - Remap Fabric mod JARs to human-readable names
+6. **`find_mapping`** - Lookup symbol mappings between namespaces
+7. **`search_minecraft_code`** - Regex search in decompiled source
+8. **`compare_versions`** - Compare classes/registries between versions
+9. **`analyze_mixin`** - Analyze and validate Mixin code
+10. **`validate_access_widener`** - Validate access widener files
+11. **`compare_versions_detailed`** - AST-level version comparison
+12. **`index_minecraft_version`** - Create full-text search index
+13. **`search_indexed`** - Fast FTS5 search on indexed versions
+14. **`get_documentation`** - Get documentation for a class
+15. **`search_documentation`** - Search documentation
+
+### Phase 3 Tools (Mod Analysis)
+16. **`analyze_mod_jar`** - Analyze third-party mod JAR files
+
+#### `analyze_mod_jar` Tool
+
+Analyzes a mod JAR file to extract comprehensive metadata. Supports Fabric, Quilt, Forge, and NeoForge mods.
+
+**Input**:
+```typescript
+{
+  jarPath: string;           // Local path to the mod JAR file
+  includeAllClasses?: boolean; // Include full class list (can be large)
+  includeRawMetadata?: boolean; // Include raw fabric.mod.json, mixin configs
+}
+```
+
+**Output** includes:
+- **Mod metadata**: ID, version, name, description, authors, license
+- **Compatibility**: Minecraft version, loader version, Java version, environment (client/server)
+- **Dependencies**: Required, optional, incompatible mods with version constraints
+- **Entry points**: Main, client, server initializers with class references
+- **Mixins**: Config files, packages, mixin class lists (common/client/server)
+- **Class analysis**: Total count, package breakdown, mixin detection via bytecode
+- **Nested JARs**: Jar-in-Jar dependencies
+
+**Example usage** (for LLM):
+```
+analyze_mod_jar({ jarPath: "C:/mods/meteor-client-1.21.10-32.jar" })
+```
+
+Returns JSON with full mod analysis including detected loader type, all dependencies, entry points, and mixin configurations.
+
+## Phase 3 Services
+
+### `mod-analyzer-service.ts`
+
+Analyzes third-party mod JARs without requiring Java. Performs:
+
+1. **Loader Detection**: Checks for `fabric.mod.json`, `quilt.mod.json`, `META-INF/mods.toml`
+2. **Metadata Parsing**: Extracts mod ID, version, dependencies from loader-specific files
+3. **Mixin Analysis**: Parses mixin config JSON files, extracts packages and class lists
+4. **Bytecode Analysis**: Scans `.class` files for `@Mixin` annotations in constant pool
+5. **Class Statistics**: Counts classes per package, identifies entry points
+
+**Key types** (`src/types/minecraft.ts`):
+- `ModLoader`: `'fabric' | 'quilt' | 'forge' | 'neoforge' | 'unknown'`
+- `ModAnalysisResult`: Complete analysis output structure
+- `ModClass`: Class metadata including mixin detection
+- `ModMixinConfig`: Parsed mixin configuration
+
 ## Related Documentation
 
 - `ARCHITECTURE.md` - High-level architecture overview

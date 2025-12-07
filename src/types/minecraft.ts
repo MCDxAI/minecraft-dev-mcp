@@ -463,3 +463,185 @@ export interface DocumentationEntry {
   /** Last updated timestamp */
   lastUpdated?: string;
 }
+
+/**
+ * Phase 3 Types - Mod Analysis
+ */
+
+/** Supported mod loaders */
+export type ModLoader = 'fabric' | 'quilt' | 'forge' | 'neoforge' | 'unknown';
+
+/** Mod environment (client/server/both) */
+export type ModEnvironment = 'client' | 'server' | '*';
+
+/** Mod dependency type */
+export type DependencyType = 'required' | 'optional' | 'incompatible' | 'suggests' | 'breaks';
+
+/** Mod dependency */
+export interface ModDependency {
+  /** Mod ID */
+  modId: string;
+  /** Version constraint (e.g., ">=1.0.0", "*") */
+  versionRange: string;
+  /** Dependency type */
+  type: DependencyType;
+  /** Is mandatory */
+  mandatory: boolean;
+}
+
+/** Mod entrypoint */
+export interface ModEntrypoint {
+  /** Entrypoint type (main, client, server, preLaunch, etc.) */
+  type: string;
+  /** Class or method reference */
+  value: string;
+  /** Adapter (default: "default") */
+  adapter?: string;
+}
+
+/** Mod contact information */
+export interface ModContact {
+  homepage?: string;
+  issues?: string;
+  sources?: string;
+  email?: string;
+  irc?: string;
+  discord?: string;
+}
+
+/** Mod person (author/contributor) */
+export interface ModPerson {
+  name: string;
+  contact?: ModContact;
+}
+
+/** Mixin configuration */
+export interface ModMixinConfig {
+  /** Mixin config file path */
+  configFile: string;
+  /** Environment (client/server/common) */
+  environment?: ModEnvironment;
+  /** Mixin package */
+  package?: string;
+  /** Mixin classes listed in config */
+  mixins?: string[];
+  /** Client-only mixins */
+  clientMixins?: string[];
+  /** Server-only mixins */
+  serverMixins?: string[];
+}
+
+/** Analyzed class from mod JAR */
+export interface ModClass {
+  /** Fully qualified class name */
+  className: string;
+  /** Is mixin class (has @Mixin annotation) */
+  isMixin: boolean;
+  /** Mixin targets (if isMixin) */
+  mixinTargets?: string[];
+  /** Is interface */
+  isInterface: boolean;
+  /** Is abstract */
+  isAbstract: boolean;
+  /** Is enum */
+  isEnum: boolean;
+  /** Superclass */
+  superclass?: string;
+  /** Implemented interfaces */
+  interfaces: string[];
+  /** Access flags */
+  access: string[];
+  /** Method count */
+  methodCount: number;
+  /** Field count */
+  fieldCount: number;
+}
+
+/** Complete mod analysis result */
+export interface ModAnalysisResult {
+  /** Analysis metadata */
+  analysis: {
+    /** JAR file path */
+    jarPath: string;
+    /** JAR file size in bytes */
+    jarSize: number;
+    /** Analysis timestamp */
+    analyzedAt: string;
+    /** Analysis duration in ms */
+    durationMs: number;
+  };
+
+  /** Detected mod loader */
+  loader: ModLoader;
+
+  /** Mod metadata */
+  metadata: {
+    /** Mod ID */
+    id: string;
+    /** Mod version */
+    version: string;
+    /** Display name */
+    name?: string;
+    /** Description */
+    description?: string;
+    /** Authors */
+    authors: ModPerson[];
+    /** Contributors */
+    contributors?: ModPerson[];
+    /** License */
+    license?: string | string[];
+    /** Icon path in JAR */
+    icon?: string;
+    /** Contact information */
+    contact?: ModContact;
+  };
+
+  /** Version compatibility */
+  compatibility: {
+    /** Minecraft version(s) */
+    minecraft: string;
+    /** Loader version requirement */
+    loaderVersion?: string;
+    /** Java version requirement */
+    javaVersion?: number;
+    /** Environment (client/server/*) */
+    environment: ModEnvironment;
+  };
+
+  /** Dependencies */
+  dependencies: ModDependency[];
+
+  /** Entry points */
+  entrypoints: ModEntrypoint[];
+
+  /** Mixin configuration */
+  mixins: ModMixinConfig[];
+
+  /** Access widener file (Fabric) */
+  accessWidener?: string;
+
+  /** Class analysis */
+  classes: {
+    /** Total class count */
+    total: number;
+    /** Package breakdown */
+    packages: Record<string, number>;
+    /** Mixin classes */
+    mixinClasses: ModClass[];
+    /** Entry point classes */
+    entrypointClasses: string[];
+    /** All classes (if includeAllClasses option set) */
+    allClasses?: ModClass[];
+  };
+
+  /** Nested JARs (Fabric JiJ) */
+  nestedJars?: string[];
+
+  /** Raw metadata files for reference */
+  rawMetadata?: {
+    fabricModJson?: unknown;
+    quiltModJson?: unknown;
+    modsToml?: unknown;
+    mixinConfigs?: Record<string, unknown>;
+  };
+}
