@@ -2,10 +2,27 @@
   "permissions": {
     "allow": [
       "WebFetch(domain:api.github.com)",
-      "Bash(move:*)"
+      "Bash(move:*)",
+      "mcp__minecraft-dev__list_minecraft_versions",
+      "mcp__minecraft-dev__get_minecraft_source",
+      "mcp__minecraft-dev__decompile_minecraft_version",
+      "mcp__minecraft-dev__get_registry_data",
+      "mcp__minecraft-dev__remap_mod_jar",
+      "mcp__minecraft-dev__find_mapping",
+      "mcp__minecraft-dev__search_minecraft_code",
+      "mcp__minecraft-dev__compare_versions",
+      "mcp__minecraft-dev__analyze_mixin",
+      "mcp__minecraft-dev__validate_access_widener",
+      "mcp__minecraft-dev__compare_versions_detailed",
+      "mcp__minecraft-dev__index_minecraft_version",
+      "mcp__minecraft-dev__search_indexed",
+      "mcp__minecraft-dev__get_documentation",
+      "mcp__minecraft-dev__search_documentation",
+      "mcp__minecraft-dev__analyze_mod_jar"
     ]
   },
-  "disabledMcpjsonServers": [
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
     "minecraft-dev"
   ]
 }

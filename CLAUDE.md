@@ -340,6 +340,36 @@ Analyzes third-party mod JARs without requiring Java. Performs:
 - `ModClass`: Class metadata including mixin detection
 - `ModMixinConfig`: Parsed mixin configuration
 
+## Missing Functionality / Future Enhancements
+
+### Mod JAR Decompilation (TODO)
+
+**Current State**: The `remap_mod_jar` tool successfully remaps Fabric mod JARs from intermediary to human-readable mappings (yarn/mojmap), converting all Minecraft class references inside the JAR to use named mappings.
+
+**Missing**: There is no tool to **decompile the remapped JAR** to readable source code.
+
+**Current Workflow**:
+1. ✅ `remap_mod_jar` - Remap intermediary → yarn/mojmap (Minecraft class references)
+2. ❌ **Missing** - Decompile remapped JAR to readable Java source
+3. ✅ `analyze_mod_jar` - Extract metadata from JAR (works on original or remapped)
+
+**Desired Workflow**:
+1. `remap_mod_jar` - Remap the mod JAR
+2. `decompile_mod_jar` - Decompile remapped JAR using VineFlower (same as Minecraft decompilation)
+3. Browse/search decompiled mod source with human-readable Minecraft class names
+
+**Implementation Notes**:
+- Can reuse existing VineFlower integration from `decompile-service.ts`
+- Output structure: `AppData/minecraft-dev-mcp/decompiled-mods/{mod-id}/{version}/{mapping}/`
+- Tool name: `decompile_mod_jar` or add `decompile?: boolean` parameter to `remap_mod_jar`
+- Would enable full mod source code analysis for educational/compatibility purposes
+
+**Use Cases**:
+- Understanding how other mods work for compatibility
+- Learning mod development techniques
+- Debugging mod interactions
+- Educational reference for Minecraft modding patterns
+
 ## Related Documentation
 
 - `ARCHITECTURE.md` - High-level architecture overview
