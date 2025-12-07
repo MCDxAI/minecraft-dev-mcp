@@ -154,7 +154,7 @@ describe('New MCP Tools', () => {
     } else {
       // Success response - verify structure
       const data = JSON.parse(text);
-      expect(data.source).toBe('Entity');
+      expect(data.source).toBe('net/minecraft/entity/Entity');
     }
   }, 60000);
 
