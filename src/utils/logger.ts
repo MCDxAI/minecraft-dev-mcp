@@ -38,19 +38,12 @@ class Logger {
 
     const formatted = this.format(levelName, message, meta);
 
-    // Console output
-    if (level >= LogLevel.WARN) {
-      console.error(formatted.trim());
-    } else {
-      console.log(formatted.trim());
-    }
-
-    // File output
+    // File output only - MCP servers must not write to stdout/stderr
+    // as it interferes with JSON-RPC communication over stdio
     try {
       appendFileSync(this.logFile, formatted, 'utf8');
     } catch (error) {
-      // Fail silently for file writes
-      console.error('Failed to write to log file:', error);
+      // Fail silently for file writes - cannot use console in MCP servers
     }
   }
 

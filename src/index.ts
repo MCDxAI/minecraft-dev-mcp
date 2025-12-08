@@ -141,8 +141,8 @@ class MinecraftDevMCPServer {
       await verifyJavaVersion(17);
     } catch (error) {
       logger.error('Java verification failed', error);
-      console.error('\n❌ Java 17+ is required but not found or not working.');
-      console.error('Please install Java 17 or higher and ensure it is in your PATH.\n');
+      // Don't use console.error - it breaks MCP stdio protocol
+      // Error will be logged to file and server will exit
       process.exit(1);
     }
 
@@ -159,6 +159,6 @@ class MinecraftDevMCPServer {
 const server = new MinecraftDevMCPServer();
 server.start().catch((error) => {
   logger.error('Failed to start server', error);
-  console.error('Failed to start server:', error);
+  // Don't use console.error - it breaks MCP stdio protocol
   process.exit(1);
 });
