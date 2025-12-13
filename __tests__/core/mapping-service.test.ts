@@ -13,17 +13,17 @@ import { existsSync } from 'node:fs';
  */
 
 describe('Mapping Download', () => {
-  it('should download and extract Yarn mappings for 1.21.10', async () => {
+  it(`should download and extract Yarn mappings for ${TEST_VERSION}`, async () => {
     const mappingService = getMappingService();
 
-    // MappingService will auto-resolve 1.21.10 -> 1.21.10+build.X
+    // MappingService will auto-resolve version -> version+build.X
     // and extract the .tiny file from the JAR
     const mappingPath = await mappingService.getMappings(TEST_VERSION, TEST_MAPPING);
 
     expect(mappingPath).toBeDefined();
     expect(existsSync(mappingPath)).toBe(true);
     expect(mappingPath).toContain('yarn');
-    expect(mappingPath).toContain('1.21.10');
+    expect(mappingPath).toContain(TEST_VERSION);
 
     // Verify it's an extracted .tiny file (not JAR)
     expect(mappingPath).toMatch(/\.tiny$/);

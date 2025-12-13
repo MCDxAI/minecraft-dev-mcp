@@ -18,7 +18,10 @@
       "mcp__minecraft-dev__search_indexed",
       "mcp__minecraft-dev__get_documentation",
       "mcp__minecraft-dev__search_documentation",
-      "mcp__minecraft-dev__analyze_mod_jar"
+      "mcp__minecraft-dev__analyze_mod_jar",
+      "WebFetch(domain:www.minecraft.net)",
+      "WebFetch(domain:fabricmc.net)",
+      "WebFetch(domain:maven.fabricmc.net)"
     ]
   },
   "enableAllProjectMcpServers": true,

@@ -14,7 +14,7 @@ import { existsSync } from 'node:fs';
  */
 
 describe('JAR Download', () => {
-  it('should download Minecraft 1.21.10 client JAR', async () => {
+  it(`should download Minecraft ${TEST_VERSION} client JAR`, async () => {
     const downloader = new MojangDownloader();
     const cacheManager = getCacheManager();
 
@@ -26,7 +26,7 @@ describe('JAR Download', () => {
 
     expect(jarPath).toBeDefined();
     expect(existsSync(jarPath)).toBe(true);
-    expect(jarPath).toContain('1.21.10');
+    expect(jarPath).toContain(TEST_VERSION);
     expect(jarPath).toContain('.jar');
 
     // Verify it's cached
