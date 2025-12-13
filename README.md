@@ -1,23 +1,27 @@
 <div align="center">
-
-# Minecraft Dev MCP Server
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Node Version](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)](package.json)
-[![MCP](https://img.shields.io/badge/MCP-Compatible-blue)](https://modelcontextprotocol.io)
-
-**MCP Server for Minecraft Mod Development**
-
-Access decompiled Minecraft source code through Claude Desktop and other MCP clients
-
-A comprehensive Model Context Protocol (MCP) server that provides LLMs with the ability to decompile Minecraft JARs, apply mappings (Yarn, Mojmap), and expose deobfuscated source code for AI-assisted Fabric mod development.
-
+  <h1>Minecraft Dev MCP Server</h1>
+  <p><strong>MCP Server for Minecraft Mod Development</strong></p>
+  <p>Access decompiled Minecraft source code through Claude Desktop and other MCP clients</p>
 </div>
 
 <div align="center">
+  <img src="https://img.shields.io/badge/License-MIT-yellow?style=flat">
+  <img src="https://img.shields.io/badge/Node.js-18%2B-brightgreen?style=flat">
+  <img src="https://img.shields.io/badge/TypeScript-5.7.2-blue?style=flat">
+  <img src="https://img.shields.io/badge/MCP%20SDK-1.0.4-purple?style=flat">
+  <img src="https://img.shields.io/badge/Java-17%2B-orange?style=flat">
+  <img src="https://img.shields.io/badge/Vitest-2.1.8-yellow?style=flat">
+</div>
 
-## Core Capabilities
+<div align="center">
+  <p>A comprehensive Model Context Protocol (MCP) server that provides LLMs with the ability to decompile Minecraft JARs, apply mappings (Yarn, Mojmap), and expose deobfuscated source code for AI-assisted Fabric mod development.</p>
+</div>
 
+<div align="center">
+  <h1>Core Capabilities</h1>
+</div>
+
+<div align="center">
 <table>
   <tr>
     <th>Feature</th>
@@ -48,13 +52,13 @@ A comprehensive Model Context Protocol (MCP) server that provides LLMs with the 
     <td>Uses Vineflower decompiler and tiny-remapper</td>
   </tr>
 </table>
-
 </div>
 
 <div align="center">
+  <h1>Prerequisites</h1>
+</div>
 
-## Prerequisites
-
+<div align="center">
 <table>
   <tr>
     <th>Requirement</th>
@@ -69,13 +73,13 @@ A comprehensive Model Context Protocol (MCP) server that provides LLMs with the 
     <td>Required for decompilation tools<br>Check: <code>java -version</code><br>Install: <a href="https://adoptium.net/">Adoptium</a> or <a href="https://www.oracle.com/java/technologies/downloads/">Oracle JDK</a></td>
   </tr>
 </table>
-
 </div>
 
 <div align="center">
+  <h1>Installation</h1>
+</div>
 
-## Installation
-
+<div align="center">
 <table>
   <tr>
     <th>Method</th>
@@ -97,24 +101,19 @@ npm run build</pre>
     </td>
   </tr>
 </table>
-
 </div>
 
 <div align="center">
-
-## Quick Start
-
+  <h1>Quick Start</h1>
 </div>
 
 <div align="center">
-
-### 1. Configure Claude Desktop
-
+  <h2>1. Configure Claude Desktop</h2>
 </div>
+
+<div align="center">
 
 Add to your Claude Desktop config file:
-
-<div align="center">
 
 <table>
   <tr>
@@ -137,46 +136,46 @@ Add to your Claude Desktop config file:
 
 </div>
 
-<br>
-
 **NPM Installation:**
 
-<pre>{
+```json
+{
   "mcpServers": {
     "minecraft-dev": {
       "command": "minecraft-dev-mcp"
     }
   }
-}</pre>
+}
+```
 
 **Source Installation:**
 
-<pre>{
+```json
+{
   "mcpServers": {
     "minecraft-dev": {
       "command": "node",
       "args": ["/path/to/minecraft-dev-mcp/dist/index.js"]
     }
   }
-}</pre>
+}
+```
 
 <div align="center">
-
-### 2. Restart Claude Desktop
-
+  <h2>2. Restart Claude Desktop</h2>
 </div>
-
-Restart Claude Desktop to load the MCP server.
 
 <div align="center">
-
-### 3. Start Using
-
+  <p>Restart Claude Desktop to load the MCP server.</p>
 </div>
+
+<div align="center">
+  <h2>3. Start Using</h2>
+</div>
+
+<div align="center">
 
 In Claude Desktop, you can now ask questions like:
-
-<div align="center">
 
 <table>
   <tr>
@@ -193,20 +192,16 @@ In Claude Desktop, you can now ask questions like:
 </div>
 
 <div align="center">
-
-## Available Tools
-
+  <h1>Available Tools</h1>
 </div>
 
 <div align="center">
-
-### get_minecraft_source
-
+  <h2>get_minecraft_source</h2>
 </div>
+
+<div align="center">
 
 Get decompiled source code for a specific class.
-
-<div align="center">
 
 <table>
   <tr>
@@ -235,21 +230,21 @@ Get decompiled source code for a specific class.
 
 **Example:**
 
-<pre>{
+```json
+{
   "version": "1.21.10",
   "className": "net.minecraft.world.entity.Entity",
   "mapping": "yarn"
-}</pre>
+}
+```
 
 <div align="center">
-
-### decompile_minecraft_version
-
+  <h2>decompile_minecraft_version</h2>
 </div>
 
-Decompile an entire Minecraft version (runs once, then cached).
-
 <div align="center">
+
+Decompile an entire Minecraft version (runs once, then cached).
 
 <table>
   <tr>
@@ -278,36 +273,38 @@ Decompile an entire Minecraft version (runs once, then cached).
 
 **Example:**
 
-<pre>{
+```json
+{
   "version": "1.21.10",
   "mapping": "yarn"
-}</pre>
+}
+```
 
 <div align="center">
-
-### list_minecraft_versions
-
+  <h2>list_minecraft_versions</h2>
 </div>
 
-List available and cached Minecraft versions.
+<div align="center">
+  <p>List available and cached Minecraft versions.</p>
+</div>
 
 **Returns:**
 
-<pre>{
+```json
+{
   "cached": ["1.21.10"],
   "available": ["1.21.10", "1.21.9", "..."],
   "total_available": 800
-}</pre>
+}
+```
 
 <div align="center">
-
-### get_registry_data
-
+  <h2>get_registry_data</h2>
 </div>
 
-Get Minecraft registry data (blocks, items, entities, etc.).
-
 <div align="center">
+
+Get Minecraft registry data (blocks, items, entities, etc.).
 
 <table>
   <tr>
@@ -331,26 +328,24 @@ Get Minecraft registry data (blocks, items, entities, etc.).
 
 **Example:**
 
-<pre>{
+```json
+{
   "version": "1.21.10",
   "registry": "blocks"
-}</pre>
+}
+```
 
 <div align="center">
-
-## Architecture
-
+  <h1>Architecture</h1>
 </div>
 
 <div align="center">
-
-### Cache Structure
-
+  <h2>Cache Structure</h2>
 </div>
+
+<div align="center">
 
 All data is cached in a platform-specific directory:
-
-<div align="center">
 
 <table>
   <tr>
@@ -373,12 +368,9 @@ All data is cached in a platform-specific directory:
 
 </div>
 
-<br>
-
 **Cache Layout:**
 
 <div align="center">
-
 <table>
   <tr>
     <th>Directory</th>
@@ -417,19 +409,17 @@ All data is cached in a platform-specific directory:
     <td>Log file</td>
   </tr>
 </table>
-
 </div>
-
-<br>
 
 **Cache Size:**
 - ~400-500 MB per Minecraft version (JAR + mappings + decompiled source)
 - Vineflower + tiny-remapper: ~1 MB (one-time download)
 
 <div align="center">
+  <h2>Technology Stack</h2>
+</div>
 
-### Technology Stack
-
+<div align="center">
 <table>
   <tr>
     <th>Component</th>
@@ -460,23 +450,17 @@ All data is cached in a platform-specific directory:
     <td><a href="https://github.com/WiseLibs/better-sqlite3">better-sqlite3</a> (metadata caching)</td>
   </tr>
 </table>
-
 </div>
 
 <div align="center">
-
-## Configuration
-
+  <h1>Configuration</h1>
 </div>
 
 <div align="center">
-
-### Environment Variables
-
+  <h2>Environment Variables</h2>
 </div>
 
 <div align="center">
-
 <table>
   <tr>
     <th>Variable</th>
@@ -491,12 +475,12 @@ All data is cached in a platform-specific directory:
     <td>Set logging level (<code>DEBUG</code>, <code>INFO</code>, <code>WARN</code>, <code>ERROR</code>)</td>
   </tr>
 </table>
-
 </div>
 
 **Example:**
 
-<pre>{
+```json
+{
   "mcpServers": {
     "minecraft-dev": {
       "command": "minecraft-dev-mcp",
@@ -506,23 +490,20 @@ All data is cached in a platform-specific directory:
       }
     }
   }
-}</pre>
+}
+```
 
 <div align="center">
-
-## Workflow Examples
-
+  <h1>Workflow Examples</h1>
 </div>
 
 <div align="center">
-
-### Example 1: First-Time Decompilation
-
+  <h2>Example 1: First-Time Decompilation</h2>
 </div>
+
+<div align="center">
 
 When you request source code for the first time:
-
-<div align="center">
 
 <table>
   <tr>
@@ -557,19 +538,17 @@ When you request source code for the first time:
   </tr>
 </table>
 
-</div>
-
 **Total:** ~5 minutes first time
 
-<div align="center">
-
-### Example 2: Subsequent Requests (Cached)
-
 </div>
 
-When you request another class from the same version:
+<div align="center">
+  <h2>Example 2: Subsequent Requests (Cached)</h2>
+</div>
 
 <div align="center">
+
+When you request another class from the same version:
 
 <table>
   <tr>
@@ -589,18 +568,15 @@ When you request another class from the same version:
   </tr>
 </table>
 
-</div>
-
 **Total:** ~50ms (instant)
 
-<div align="center">
-
-## Troubleshooting
-
 </div>
 
 <div align="center">
+  <h1>Troubleshooting</h1>
+</div>
 
+<div align="center">
 <table>
   <tr>
     <th>Issue</th>
@@ -631,17 +607,13 @@ When you request another class from the same version:
     </td>
   </tr>
 </table>
-
 </div>
 
 <div align="center">
-
-## Development
-
+  <h1>Development</h1>
 </div>
 
 <div align="center">
-
 <table>
   <tr>
     <th>Task</th>
@@ -673,115 +645,21 @@ npm run build</pre>
     <td><code>npm run dev</code></td>
   </tr>
 </table>
-
 </div>
 
 <div align="center">
-
-## Performance
-
+  <h1>License</h1>
 </div>
 
 <div align="center">
-
-### Benchmarks (Minecraft 1.21.10 with Yarn)
-
+  <p>MIT License - see <a href="./LICENSE">LICENSE</a> file for details</p>
 </div>
 
 <div align="center">
-
-<table>
-  <tr>
-    <th>Operation</th>
-    <th>First Time</th>
-    <th>Cached</th>
-  </tr>
-  <tr>
-    <td>Download JAR</td>
-    <td>~30s</td>
-    <td>Instant</td>
-  </tr>
-  <tr>
-    <td>Download Mappings</td>
-    <td>~5s</td>
-    <td>Instant</td>
-  </tr>
-  <tr>
-    <td>Remap JAR</td>
-    <td>~2 min</td>
-    <td>Instant</td>
-  </tr>
-  <tr>
-    <td>Decompile (8000+ classes)</td>
-    <td>~3 min</td>
-    <td>Instant</td>
-  </tr>
-  <tr>
-    <td>Get Class Source</td>
-    <td>~5 min</td>
-    <td>&lt;100ms</td>
-  </tr>
-</table>
-
-</div>
-
-**Hardware:** Intel i7-12700K, 32GB RAM, SSD
-
-<div align="center">
-
-## Contributing
-
-</div>
-
-Contributions welcome! Please see [ARCHITECTURE.md](./ARCHITECTURE.md) for system design details.
-
-<div align="center">
-
-<table>
-  <tr>
-    <th>Step</th>
-    <th>Action</th>
-  </tr>
-  <tr>
-    <td>1</td>
-    <td>Fork the repository</td>
-  </tr>
-  <tr>
-    <td>2</td>
-    <td>Create a feature branch</td>
-  </tr>
-  <tr>
-    <td>3</td>
-    <td>Make your changes</td>
-  </tr>
-  <tr>
-    <td>4</td>
-    <td>Run tests and type check</td>
-  </tr>
-  <tr>
-    <td>5</td>
-    <td>Submit a pull request</td>
-  </tr>
-</table>
-
+  <h1>Credits</h1>
 </div>
 
 <div align="center">
-
-## License
-
-</div>
-
-MIT License - see [LICENSE](./LICENSE) file for details
-
-<div align="center">
-
-## Credits
-
-</div>
-
-<div align="center">
-
 <table>
   <tr>
     <th>Project</th>
@@ -804,17 +682,13 @@ MIT License - see [LICENSE](./LICENSE) file for details
     <td>Protocol implementation by <a href="https://github.com/modelcontextprotocol/typescript-sdk">Anthropic</a></td>
   </tr>
 </table>
-
 </div>
 
 <div align="center">
-
-## Support
-
+  <h1>Support</h1>
 </div>
 
 <div align="center">
-
 <table>
   <tr>
     <th>Resource</th>
@@ -833,11 +707,8 @@ MIT License - see [LICENSE](./LICENSE) file for details
     <td><a href="./ARCHITECTURE.md">ARCHITECTURE.md</a></td>
   </tr>
 </table>
-
 </div>
 
 <div align="center">
-
-**Built with ❤️ for the Minecraft modding community**
-
+  <p><strong>Built with ❤️ for the Minecraft modding community</strong></p>
 </div>
