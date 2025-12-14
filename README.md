@@ -1,20 +1,22 @@
 <div align="center">
   <h1>Minecraft Dev MCP Server</h1>
-  <p><strong>MCP Server for Minecraft Mod Development</strong></p>
-  <p>Access decompiled Minecraft source code through Claude Desktop and other MCP clients</p>
 </div>
 
 <div align="center">
   <img src="https://img.shields.io/badge/License-MIT-yellow?style=flat">
   <img src="https://img.shields.io/badge/Node.js-18%2B-brightgreen?style=flat">
-  <img src="https://img.shields.io/badge/TypeScript-5.7.2-blue?style=flat">
+  <img src="https://img.shields.io/badge/TypeScript-5.7.2-3178c6?style=flat">
   <img src="https://img.shields.io/badge/MCP%20SDK-1.0.4-purple?style=flat">
   <img src="https://img.shields.io/badge/Java-17%2B-orange?style=flat">
-  <img src="https://img.shields.io/badge/Vitest-2.1.8-yellow?style=flat">
+  <img src="https://img.shields.io/badge/Vitest-2.1.8-729B1B?style=flat">
+  <img src="https://img.shields.io/badge/Biome-1.9.4-60a5fa?style=flat">
+  <img src="https://img.shields.io/badge/better--sqlite3-11.7.0-003B57?style=flat">
+  <img src="https://img.shields.io/badge/Zod-3.24.1-3e67b1?style=flat">
+  <img src="https://img.shields.io/badge/WSL-Compatible-0078d4?style=flat">
 </div>
 
 <div align="center">
-  <p>A comprehensive Model Context Protocol (MCP) server that provides LLMs with the ability to decompile Minecraft JARs, apply mappings (Yarn, Mojmap, Intermediary), analyze mod code, validate mixins, compare versions, and expose deobfuscated source code for AI-assisted Fabric mod development.</p>
+  <p>A comprehensive Model Context Protocol (MCP) server that enables AI agents and agentic CLIs (Claude Code, OpenAI Codex, etc.) to work seamlessly with Minecraft mod development. Provides decompilation, mapping translation (Yarn, Mojmap, Intermediary), mod analysis, mixin validation, version comparison, and deobfuscated source code access. Built with full WSL compatibility to support agentic tools running in WSL on Windows (like Codex) and native Windows environments (like Claude Code).</p>
 </div>
 
 <div align="center">

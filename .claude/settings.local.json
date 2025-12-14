@@ -31,7 +31,9 @@
       "Bash(npx tsx:*)",
       "Bash(git commit:*)",
       "Bash(git remote get-url:*)",
-      "Skill(readme-generator)"
+      "Skill(readme-generator)",
+      "Skill(repo-sweep)",
+      "Bash(git check-ignore:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

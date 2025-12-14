@@ -30,8 +30,16 @@
     "clean": "rimraf dist"
   },
   "keywords": ["minecraft", "fabric", "mod-development", "mcp", "decompiler", "mappings"],
-  "author": "",
+  "author": "GhostTypes",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MCDxAI/minecraft-dev-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/MCDxAI/minecraft-dev-mcp/issues"
+  },
+  "homepage": "https://github.com/MCDxAI/minecraft-dev-mcp#readme",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",
     "adm-zip": "^0.5.16",
