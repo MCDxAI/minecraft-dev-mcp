@@ -1,16 +1,38 @@
 import { homedir, platform } from 'node:os';
 import { join } from 'node:path';
+import { normalizeOptionalPath } from './path-converter.js';
+
+// Re-export path conversion utilities for convenience
+export {
+  convertToWindowsPath,
+  convertToWslPath,
+  normalizePath,
+  normalizeOptionalPath,
+  isWindowsDrivePath,
+  isWslMountPath,
+  validatePathFormat,
+  describePathFormat,
+} from './path-converter.js';
 
 /**
  * Get the platform-specific cache directory for minecraft-dev-mcp
  * Windows: %APPDATA%/minecraft-dev-mcp
  * macOS: ~/Library/Application Support/minecraft-dev-mcp
- * Linux: ~/.config/minecraft-dev-mcp
+ * Linux/WSL: ~/.config/minecraft-dev-mcp
+ *
+ * WSL2 Support:
+ * - Set CACHE_DIR environment variable to use a unified cache location
+ * - Example: CACHE_DIR="/mnt/c/Users/YourName/AppData/Roaming/minecraft-dev-mcp"
+ * - The path will be automatically normalized for the current platform
  */
 export function getCacheDir(): string {
-  // Allow override via environment variable
+  // Allow override via environment variable (supports both WSL and Windows paths)
   if (process.env.CACHE_DIR) {
-    return process.env.CACHE_DIR;
+    // Normalize the path for the current platform
+    const normalized = normalizeOptionalPath(process.env.CACHE_DIR);
+    if (normalized) {
+      return normalized;
+    }
   }
 
   const os = platform();
@@ -21,7 +43,7 @@ export function getCacheDir(): string {
       return join(process.env.APPDATA || join(home, 'AppData', 'Roaming'), 'minecraft-dev-mcp');
     case 'darwin':
       return join(home, 'Library', 'Application Support', 'minecraft-dev-mcp');
-    default: // linux and others
+    default: // linux and others (including WSL)
       return join(home, '.config', 'minecraft-dev-mcp');
   }
 }

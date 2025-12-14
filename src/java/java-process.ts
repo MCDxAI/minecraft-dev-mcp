@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { JavaProcessError } from '../utils/errors.js';
 import { logger } from '../utils/logger.js';
+import { normalizePath, normalizeOptionalPath } from '../utils/path-converter.js';
 
 export interface JavaProcessOptions {
   maxMemory?: string; // e.g., "2G"
@@ -11,6 +12,7 @@ export interface JavaProcessOptions {
   onProgress?: (current: number, total: number) => void;
   mainClass?: string; // If provided, use -cp instead of -jar
   jvmArgs?: string[]; // Additional JVM arguments (e.g., ['-DbundlerMainClass=net.minecraft.data.Main'])
+  cwd?: string; // Working directory for the Java process (supports WSL and Windows paths)
 }
 
 export interface JavaProcessResult {
@@ -21,6 +23,10 @@ export interface JavaProcessResult {
 
 /**
  * Execute a Java process with monitoring
+ *
+ * WSL2/Windows Support:
+ * - jarPath and args containing file paths are automatically normalized for the current platform
+ * - Supports both Windows (C:\...) and WSL (/mnt/c/...) path formats
  */
 export async function executeJavaProcess(
   jarPath: string,
@@ -35,7 +41,25 @@ export async function executeJavaProcess(
     onStderr,
     mainClass,
     jvmArgs = [],
+    cwd,
   } = options;
+
+  // Normalize paths for cross-platform support (WSL/Windows)
+  const normalizedJarPath = normalizePath(jarPath);
+  const normalizedCwd = normalizeOptionalPath(cwd);
+
+  // Normalize file path arguments (paths that look like absolute paths)
+  const normalizedArgs = args.map((arg) => {
+    // Normalize arguments that look like absolute file paths
+    if (
+      arg.startsWith('/') ||
+      arg.startsWith('\\') ||
+      /^[A-Za-z]:/.test(arg)
+    ) {
+      return normalizePath(arg);
+    }
+    return arg;
+  });
 
   // Build JVM arguments
   const baseJvmArgs = [`-Xmx${maxMemory}`, `-Xms${minMemory}`, ...jvmArgs];
@@ -44,18 +68,25 @@ export async function executeJavaProcess(
   let javaArgs: string[];
   if (mainClass) {
     // Use -cp with explicit main class (legacy format)
-    javaArgs = [...baseJvmArgs, '-cp', jarPath, mainClass, ...args];
+    javaArgs = [...baseJvmArgs, '-cp', normalizedJarPath, mainClass, ...normalizedArgs];
   } else {
     // Use -jar (standard format)
-    javaArgs = [...baseJvmArgs, '-jar', jarPath, ...args];
+    javaArgs = [...baseJvmArgs, '-jar', normalizedJarPath, ...normalizedArgs];
   }
 
   logger.info(`Executing Java: java ${javaArgs.join(' ')}`);
 
   return new Promise((resolve, reject) => {
-    const process = spawn('java', javaArgs, {
+    const spawnOptions: { stdio: ['ignore', 'pipe', 'pipe']; cwd?: string } = {
       stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    };
+
+    // Add working directory if provided
+    if (normalizedCwd) {
+      spawnOptions.cwd = normalizedCwd;
+    }
+
+    const process = spawn('java', javaArgs, spawnOptions);
 
     let stdout = '';
     let stderr = '';

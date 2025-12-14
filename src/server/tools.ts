@@ -15,6 +15,7 @@ import { getSearchIndexService } from '../services/search-index-service.js';
 import { getVersionManager } from '../services/version-manager.js';
 import type { AccessWidener, MappingType, MixinClass } from '../types/minecraft.js';
 import { logger } from '../utils/logger.js';
+import { normalizePath } from '../utils/path-converter.js';
 import { getDecompiledPath } from '../utils/paths.js';
 
 // Tool input schemas
@@ -41,8 +42,8 @@ const GetRegistryDataSchema = z.object({
 });
 
 const RemapModJarSchema = z.object({
-  inputJar: z.string().describe('Path to the input mod JAR file'),
-  outputJar: z.string().describe('Path for the output remapped JAR file'),
+  inputJar: z.string().describe('Path to the input mod JAR file (supports WSL and Windows paths)'),
+  outputJar: z.string().describe('Path for the output remapped JAR file (supports WSL and Windows paths)'),
   mcVersion: z.string().describe('Minecraft version the mod is for'),
   toMapping: z.enum(['yarn', 'mojmap']).describe('Target mapping type'),
 });
@@ -75,13 +76,13 @@ const CompareVersionsSchema = z.object({
 
 // Phase 2 Tool Schemas
 const AnalyzeMixinSchema = z.object({
-  source: z.string().describe('Mixin source code (Java) or path to a JAR/directory'),
+  source: z.string().describe('Mixin source code (Java) or path to a JAR/directory (supports WSL and Windows paths)'),
   mcVersion: z.string().describe('Minecraft version to validate against'),
   mapping: z.enum(['yarn', 'mojmap']).optional().describe('Mapping type (default: yarn)'),
 });
 
 const ValidateAccessWidenerSchema = z.object({
-  content: z.string().describe('Access widener file content or path to .accesswidener file'),
+  content: z.string().describe('Access widener file content or path to .accesswidener file (supports WSL and Windows paths)'),
   mcVersion: z.string().describe('Minecraft version to validate against'),
   mapping: z.enum(['yarn', 'mojmap']).optional().describe('Mapping type (default: yarn)'),
 });
@@ -123,7 +124,7 @@ const SearchDocumentationSchema = z.object({
 
 // Phase 3 Tool Schemas
 const AnalyzeModJarSchema = z.object({
-  jarPath: z.string().describe('Local file path to the mod JAR file'),
+  jarPath: z.string().describe('Local file path to the mod JAR file (supports WSL and Windows paths)'),
   includeAllClasses: z
     .boolean()
     .optional()
@@ -216,17 +217,17 @@ export const tools = [
   {
     name: 'remap_mod_jar',
     description:
-      'Remap a Fabric mod JAR from intermediary mappings to human-readable mappings. Useful for reading mod source code.',
+      'Remap a Fabric mod JAR from intermediary mappings to human-readable mappings. Useful for reading mod source code. Supports both WSL (/mnt/c/...) and Windows (C:\\...) paths.',
     inputSchema: {
       type: 'object',
       properties: {
         inputJar: {
           type: 'string',
-          description: 'Path to the input mod JAR file',
+          description: 'Path to the input mod JAR file (WSL or Windows path)',
         },
         outputJar: {
           type: 'string',
-          description: 'Path for the output remapped JAR file',
+          description: 'Path for the output remapped JAR file (WSL or Windows path)',
         },
         mcVersion: {
           type: 'string',
@@ -338,13 +339,13 @@ export const tools = [
   {
     name: 'analyze_mixin',
     description:
-      'Analyze and validate Mixin code against Minecraft source. Parses @Mixin annotations, validates injection targets, and suggests fixes for issues.',
+      'Analyze and validate Mixin code against Minecraft source. Parses @Mixin annotations, validates injection targets, and suggests fixes for issues. Supports both WSL (/mnt/c/...) and Windows (C:\\...) paths.',
     inputSchema: {
       type: 'object',
       properties: {
         source: {
           type: 'string',
-          description: 'Mixin source code (Java) or path to a JAR/directory containing mixins',
+          description: 'Mixin source code (Java) or path to a JAR/directory (WSL or Windows path)',
         },
         mcVersion: {
           type: 'string',
@@ -362,13 +363,13 @@ export const tools = [
   {
     name: 'validate_access_widener',
     description:
-      'Parse and validate Fabric Access Widener files against Minecraft source. Checks that targets exist and suggests fixes.',
+      'Parse and validate Fabric Access Widener files against Minecraft source. Checks that targets exist and suggests fixes. Supports both WSL (/mnt/c/...) and Windows (C:\\...) paths.',
     inputSchema: {
       type: 'object',
       properties: {
         content: {
           type: 'string',
-          description: 'Access widener file content or path to .accesswidener file',
+          description: 'Access widener file content or path to .accesswidener file (WSL or Windows path)',
         },
         mcVersion: {
           type: 'string',
@@ -502,13 +503,13 @@ export const tools = [
   {
     name: 'analyze_mod_jar',
     description:
-      'Analyze a third-party mod JAR file to extract metadata, dependencies, entry points, mixins, and class information. Supports Fabric, Quilt, Forge, and NeoForge mods. Returns comprehensive mod analysis including: mod ID, version, Minecraft compatibility, dependencies, entry points, mixin configurations, and class statistics.',
+      'Analyze a third-party mod JAR file to extract metadata, dependencies, entry points, mixins, and class information. Supports Fabric, Quilt, Forge, and NeoForge mods. Returns comprehensive mod analysis including: mod ID, version, Minecraft compatibility, dependencies, entry points, mixin configurations, and class statistics. Supports both WSL (/mnt/c/...) and Windows (C:\\...) paths.',
     inputSchema: {
       type: 'object',
       properties: {
         jarPath: {
           type: 'string',
-          description: 'Local file path to the mod JAR file to analyze',
+          description: 'Local file path to the mod JAR file (WSL or Windows path)',
         },
         includeAllClasses: {
           type: 'boolean',
@@ -685,19 +686,23 @@ export async function handleGetRegistryData(args: unknown) {
 export async function handleRemapModJar(args: unknown) {
   const { inputJar, outputJar, mcVersion, toMapping } = RemapModJarSchema.parse(args);
 
-  logger.info(`Remapping mod JAR: ${inputJar} -> ${outputJar}`);
+  // Normalize paths for cross-platform support (WSL/Windows)
+  const normalizedInputJar = normalizePath(inputJar);
+  const normalizedOutputJar = normalizePath(outputJar);
+
+  logger.info(`Remapping mod JAR: ${normalizedInputJar} -> ${normalizedOutputJar}`);
 
   const remapService = getRemapService();
 
   try {
     // Check input file exists
-    if (!existsSync(inputJar)) {
-      throw new Error(`Input JAR not found: ${inputJar}`);
+    if (!existsSync(normalizedInputJar)) {
+      throw new Error(`Input JAR not found: ${normalizedInputJar}`);
     }
 
     const result = await remapService.remapModJar(
-      inputJar,
-      outputJar,
+      normalizedInputJar,
+      normalizedOutputJar,
       mcVersion,
       toMapping as MappingType,
     );
@@ -1058,12 +1063,16 @@ export async function handleAnalyzeMixin(args: unknown) {
   const mixinService = getMixinService();
 
   try {
+    // Normalize path for cross-platform support (WSL/Windows)
+    // Only normalize if it looks like a file path
+    const normalizedSource = normalizePath(source);
+
     // Check if source is a file path or actual source code
     let mixin: MixinClass | null = null;
-    if (existsSync(source)) {
+    if (existsSync(normalizedSource)) {
       // It's a path - could be JAR, directory, or single file
-      if (source.endsWith('.jar')) {
-        const mixins = await mixinService.parseMixinsFromJar(source);
+      if (normalizedSource.endsWith('.jar')) {
+        const mixins = await mixinService.parseMixinsFromJar(normalizedSource);
         if (mixins.length === 0) {
           return {
             content: [{ type: 'text', text: 'No mixins found in JAR file' }],
@@ -1093,12 +1102,12 @@ export async function handleAnalyzeMixin(args: unknown) {
           ],
         };
       }
-      if (source.endsWith('.java')) {
-        const sourceCode = readFileSync(source, 'utf8');
-        mixin = mixinService.parseMixinSource(sourceCode, source);
+      if (normalizedSource.endsWith('.java')) {
+        const sourceCode = readFileSync(normalizedSource, 'utf8');
+        mixin = mixinService.parseMixinSource(sourceCode, normalizedSource);
       } else {
         // Assume directory
-        const mixins = mixinService.parseMixinsFromDirectory(source);
+        const mixins = mixinService.parseMixinsFromDirectory(normalizedSource);
         const results = await Promise.all(
           mixins.map((m) => mixinService.validateMixin(m, mcVersion, mapping as MappingType)),
         );
@@ -1166,11 +1175,14 @@ export async function handleValidateAccessWidener(args: unknown) {
   const awService = getAccessWidenerService();
 
   try {
+    // Normalize path for cross-platform support (WSL/Windows)
+    const normalizedContent = normalizePath(content);
+
     let accessWidener: AccessWidener;
 
     // Check if content is a file path
-    if (existsSync(content)) {
-      accessWidener = awService.parseAccessWidenerFile(content);
+    if (existsSync(normalizedContent)) {
+      accessWidener = awService.parseAccessWidenerFile(normalizedContent);
     } else {
       accessWidener = awService.parseAccessWidener(content);
     }
@@ -1444,25 +1456,28 @@ export async function handleSearchDocumentation(args: unknown) {
 export async function handleAnalyzeModJar(args: unknown) {
   const { jarPath, includeAllClasses, includeRawMetadata } = AnalyzeModJarSchema.parse(args);
 
-  logger.info(`Analyzing mod JAR: ${jarPath}`);
+  // Normalize path for cross-platform support (WSL/Windows)
+  const normalizedJarPath = normalizePath(jarPath);
+
+  logger.info(`Analyzing mod JAR: ${normalizedJarPath}`);
 
   const modAnalyzer = getModAnalyzerService();
 
   try {
     // Check file exists
-    if (!existsSync(jarPath)) {
+    if (!existsSync(normalizedJarPath)) {
       return {
         content: [
           {
             type: 'text',
-            text: `Error: JAR file not found: ${jarPath}`,
+            text: `Error: JAR file not found: ${normalizedJarPath}`,
           },
         ],
         isError: true,
       };
     }
 
-    const result = await modAnalyzer.analyzeMod(jarPath, {
+    const result = await modAnalyzer.analyzeMod(normalizedJarPath, {
       includeAllClasses,
       includeRawMetadata,
       analyzeBytecode: true,
