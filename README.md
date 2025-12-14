@@ -14,7 +14,7 @@
 </div>
 
 <div align="center">
-  <p>A comprehensive Model Context Protocol (MCP) server that provides LLMs with the ability to decompile Minecraft JARs, apply mappings (Yarn, Mojmap), and expose deobfuscated source code for AI-assisted Fabric mod development.</p>
+  <p>A comprehensive Model Context Protocol (MCP) server that provides LLMs with the ability to decompile Minecraft JARs, apply mappings (Yarn, Mojmap, Intermediary), analyze mod code, validate mixins, compare versions, and expose deobfuscated source code for AI-assisted Fabric mod development.</p>
 </div>
 
 <div align="center">
@@ -33,7 +33,7 @@
   </tr>
   <tr>
     <td><b>Multiple Mapping Types</b></td>
-    <td>Support for Yarn and Mojmap (official) mappings</td>
+    <td>Support for Yarn, Mojmap (official), Intermediary, and obfuscated mappings</td>
   </tr>
   <tr>
     <td><b>Smart Caching</b></td>
@@ -41,15 +41,27 @@
   </tr>
   <tr>
     <td><b>Source Code Access</b></td>
-    <td>Get decompiled Java source for any Minecraft class</td>
+    <td>Get decompiled Java source for any Minecraft class with full-text search</td>
   </tr>
   <tr>
     <td><b>Registry Data</b></td>
     <td>Extract block, item, entity, and other registry information</td>
   </tr>
   <tr>
+    <td><b>Mod Analysis</b></td>
+    <td>Remap, validate mixins, analyze access wideners, and extract mod metadata</td>
+  </tr>
+  <tr>
+    <td><b>Version Comparison</b></td>
+    <td>Compare Minecraft versions with class-level and AST-level diff analysis</td>
+  </tr>
+  <tr>
+    <td><b>Documentation Access</b></td>
+    <td>Search and access Minecraft/Fabric documentation and usage hints</td>
+  </tr>
+  <tr>
     <td><b>Production-Grade Tools</b></td>
-    <td>Uses Vineflower decompiler and tiny-remapper</td>
+    <td>Uses Vineflower decompiler, tiny-remapper, and SQLite FTS5 indexing</td>
   </tr>
 </table>
 </div>
@@ -94,7 +106,7 @@
   <tr>
     <td><b>From Source</b></td>
     <td>
-      <pre>git clone https://github.com/your-org/minecraft-dev-mcp.git
+      <pre>git clone https://github.com/MCDxAI/minecraft-dev-mcp.git
 cd minecraft-dev-mcp
 npm install
 npm run build</pre>
@@ -179,13 +191,40 @@ In Claude Desktop, you can now ask questions like:
 
 <table>
   <tr>
+    <th>Category</th>
+    <th>Example Query</th>
+  </tr>
+  <tr>
+    <td><b>Source Access</b></td>
     <td><code>"Show me the Entity class from Minecraft 1.21.10 using Yarn mappings"</code></td>
   </tr>
   <tr>
+    <td><b>Decompilation</b></td>
     <td><code>"Decompile Minecraft 1.21.10 with Mojmap"</code></td>
   </tr>
   <tr>
+    <td><b>Registry Data</b></td>
     <td><code>"What blocks are registered in Minecraft 1.21.10?"</code></td>
+  </tr>
+  <tr>
+    <td><b>Code Search</b></td>
+    <td><code>"Search for all methods containing 'onBlockBreak' in 1.21.10"</code></td>
+  </tr>
+  <tr>
+    <td><b>Version Diff</b></td>
+    <td><code>"Compare Minecraft 1.21.10 and 1.21.11 to find breaking changes"</code></td>
+  </tr>
+  <tr>
+    <td><b>Mod Analysis</b></td>
+    <td><code>"Analyze the meteor-client.jar file and show me its dependencies"</code></td>
+  </tr>
+  <tr>
+    <td><b>Mixin Validation</b></td>
+    <td><code>"Validate this mixin code against Minecraft 1.21.10"</code></td>
+  </tr>
+  <tr>
+    <td><b>Mapping Lookup</b></td>
+    <td><code>"Convert the obfuscated class 'abc' to Yarn names for 1.21.10"</code></td>
   </tr>
 </table>
 
@@ -196,12 +235,49 @@ In Claude Desktop, you can now ask questions like:
 </div>
 
 <div align="center">
-  <h2>get_minecraft_source</h2>
+  <p>16 powerful tools organized into three capability tiers</p>
 </div>
 
 <div align="center">
 
-Get decompiled source code for a specific class.
+<table>
+  <tr>
+    <th>Phase</th>
+    <th>Tools</th>
+    <th>Description</th>
+  </tr>
+  <tr>
+    <td><b>Phase 1: Core Decompilation</b></td>
+    <td>4 tools</td>
+    <td>Essential decompilation, source access, version management, and registry data</td>
+  </tr>
+  <tr>
+    <td><b>Phase 2: Advanced Analysis</b></td>
+    <td>11 tools</td>
+    <td>Mod JAR remapping, mapping lookups, code search, version comparison, mixin/access widener validation, indexing, and documentation</td>
+  </tr>
+  <tr>
+    <td><b>Phase 3: Mod Analysis</b></td>
+    <td>1 tool</td>
+    <td>Comprehensive third-party mod JAR analysis for Fabric, Quilt, Forge, and NeoForge</td>
+  </tr>
+</table>
+
+</div>
+
+---
+
+<div align="center">
+  <h2>Phase 1: Core Decompilation Tools</h2>
+</div>
+
+<div align="center">
+  <h3>get_minecraft_source</h3>
+</div>
+
+<div align="center">
+
+Get decompiled source code for a specific Minecraft class.
 
 <table>
   <tr>
@@ -239,7 +315,7 @@ Get decompiled source code for a specific class.
 ```
 
 <div align="center">
-  <h2>decompile_minecraft_version</h2>
+  <h3>decompile_minecraft_version</h3>
 </div>
 
 <div align="center">
@@ -281,7 +357,7 @@ Decompile an entire Minecraft version (runs once, then cached).
 ```
 
 <div align="center">
-  <h2>list_minecraft_versions</h2>
+  <h3>list_minecraft_versions</h3>
 </div>
 
 <div align="center">
@@ -299,7 +375,7 @@ Decompile an entire Minecraft version (runs once, then cached).
 ```
 
 <div align="center">
-  <h2>get_registry_data</h2>
+  <h3>get_registry_data</h3>
 </div>
 
 <div align="center">
@@ -320,7 +396,7 @@ Get Minecraft registry data (blocks, items, entities, etc.).
   <tr>
     <td><code>registry</code></td>
     <td>string (optional)</td>
-    <td>Specific registry (e.g., "blocks", "items")</td>
+    <td>Specific registry (e.g., "blocks", "items", "entities")</td>
   </tr>
 </table>
 
@@ -332,6 +408,564 @@ Get Minecraft registry data (blocks, items, entities, etc.).
 {
   "version": "1.21.10",
   "registry": "blocks"
+}
+```
+
+---
+
+<div align="center">
+  <h2>Phase 2: Advanced Analysis Tools</h2>
+</div>
+
+<div align="center">
+  <h3>remap_mod_jar</h3>
+</div>
+
+<div align="center">
+
+Remap Fabric mod JARs from intermediary to human-readable mappings.
+
+<table>
+  <tr>
+    <th>Parameter</th>
+    <th>Type</th>
+    <th>Description</th>
+  </tr>
+  <tr>
+    <td><code>inputJar</code></td>
+    <td>string</td>
+    <td>Path to input mod JAR (WSL or Windows path)</td>
+  </tr>
+  <tr>
+    <td><code>outputJar</code></td>
+    <td>string</td>
+    <td>Path for output remapped JAR (WSL or Windows path)</td>
+  </tr>
+  <tr>
+    <td><code>mcVersion</code></td>
+    <td>string</td>
+    <td>Minecraft version the mod is for</td>
+  </tr>
+  <tr>
+    <td><code>toMapping</code></td>
+    <td>"yarn" | "mojmap"</td>
+    <td>Target mapping type</td>
+  </tr>
+</table>
+
+</div>
+
+**Example:**
+
+```json
+{
+  "inputJar": "/mnt/c/mods/mymod.jar",
+  "outputJar": "/mnt/c/mods/mymod-remapped.jar",
+  "mcVersion": "1.21.10",
+  "toMapping": "yarn"
+}
+```
+
+<div align="center">
+  <h3>find_mapping</h3>
+</div>
+
+<div align="center">
+
+Look up symbol mappings between different mapping systems.
+
+<table>
+  <tr>
+    <th>Parameter</th>
+    <th>Type</th>
+    <th>Description</th>
+  </tr>
+  <tr>
+    <td><code>symbol</code></td>
+    <td>string</td>
+    <td>Symbol to look up (class, method, or field name)</td>
+  </tr>
+  <tr>
+    <td><code>version</code></td>
+    <td>string</td>
+    <td>Minecraft version</td>
+  </tr>
+  <tr>
+    <td><code>sourceMapping</code></td>
+    <td>"official" | "intermediary" | "yarn" | "mojmap"</td>
+    <td>Source mapping type</td>
+  </tr>
+  <tr>
+    <td><code>targetMapping</code></td>
+    <td>"official" | "intermediary" | "yarn" | "mojmap"</td>
+    <td>Target mapping type</td>
+  </tr>
+</table>
+
+</div>
+
+**Example:**
+
+```json
+{
+  "symbol": "Entity",
+  "version": "1.21.10",
+  "sourceMapping": "yarn",
+  "targetMapping": "mojmap"
+}
+```
+
+<div align="center">
+  <h3>search_minecraft_code</h3>
+</div>
+
+<div align="center">
+
+Search decompiled Minecraft source code using regex patterns.
+
+<table>
+  <tr>
+    <th>Parameter</th>
+    <th>Type</th>
+    <th>Description</th>
+  </tr>
+  <tr>
+    <td><code>version</code></td>
+    <td>string</td>
+    <td>Minecraft version</td>
+  </tr>
+  <tr>
+    <td><code>query</code></td>
+    <td>string</td>
+    <td>Search query (regex pattern or literal)</td>
+  </tr>
+  <tr>
+    <td><code>searchType</code></td>
+    <td>"class" | "method" | "field" | "content" | "all"</td>
+    <td>Type of search to perform</td>
+  </tr>
+  <tr>
+    <td><code>mapping</code></td>
+    <td>"yarn" | "mojmap"</td>
+    <td>Mapping type</td>
+  </tr>
+  <tr>
+    <td><code>limit</code></td>
+    <td>number (optional)</td>
+    <td>Maximum results (default: 50)</td>
+  </tr>
+</table>
+
+</div>
+
+**Example:**
+
+```json
+{
+  "version": "1.21.10",
+  "query": "onBlockBreak",
+  "searchType": "method",
+  "mapping": "yarn",
+  "limit": 20
+}
+```
+
+<div align="center">
+  <h3>compare_versions</h3>
+</div>
+
+<div align="center">
+
+Compare two Minecraft versions to find differences.
+
+<table>
+  <tr>
+    <th>Parameter</th>
+    <th>Type</th>
+    <th>Description</th>
+  </tr>
+  <tr>
+    <td><code>fromVersion</code></td>
+    <td>string</td>
+    <td>Source Minecraft version</td>
+  </tr>
+  <tr>
+    <td><code>toVersion</code></td>
+    <td>string</td>
+    <td>Target Minecraft version</td>
+  </tr>
+  <tr>
+    <td><code>mapping</code></td>
+    <td>"yarn" | "mojmap"</td>
+    <td>Mapping type to use</td>
+  </tr>
+  <tr>
+    <td><code>category</code></td>
+    <td>"classes" | "registry" | "all" (optional)</td>
+    <td>What to compare (default: all)</td>
+  </tr>
+</table>
+
+</div>
+
+**Example:**
+
+```json
+{
+  "fromVersion": "1.21.10",
+  "toVersion": "1.21.11",
+  "mapping": "yarn",
+  "category": "all"
+}
+```
+
+<div align="center">
+  <h3>analyze_mixin</h3>
+</div>
+
+<div align="center">
+
+Analyze and validate Mixin code against Minecraft source.
+
+<table>
+  <tr>
+    <th>Parameter</th>
+    <th>Type</th>
+    <th>Description</th>
+  </tr>
+  <tr>
+    <td><code>source</code></td>
+    <td>string</td>
+    <td>Mixin source code or path to JAR/directory (WSL or Windows)</td>
+  </tr>
+  <tr>
+    <td><code>mcVersion</code></td>
+    <td>string</td>
+    <td>Minecraft version to validate against</td>
+  </tr>
+  <tr>
+    <td><code>mapping</code></td>
+    <td>"yarn" | "mojmap" (optional)</td>
+    <td>Mapping type (default: yarn)</td>
+  </tr>
+</table>
+
+</div>
+
+**Example:**
+
+```json
+{
+  "source": "/path/to/MyMixin.java",
+  "mcVersion": "1.21.10",
+  "mapping": "yarn"
+}
+```
+
+<div align="center">
+  <h3>validate_access_widener</h3>
+</div>
+
+<div align="center">
+
+Validate Fabric Access Widener files against Minecraft source.
+
+<table>
+  <tr>
+    <th>Parameter</th>
+    <th>Type</th>
+    <th>Description</th>
+  </tr>
+  <tr>
+    <td><code>content</code></td>
+    <td>string</td>
+    <td>Access widener content or path to .accesswidener file</td>
+  </tr>
+  <tr>
+    <td><code>mcVersion</code></td>
+    <td>string</td>
+    <td>Minecraft version to validate against</td>
+  </tr>
+  <tr>
+    <td><code>mapping</code></td>
+    <td>"yarn" | "mojmap" (optional)</td>
+    <td>Mapping type (default: yarn)</td>
+  </tr>
+</table>
+
+</div>
+
+**Example:**
+
+```json
+{
+  "content": "/path/to/mymod.accesswidener",
+  "mcVersion": "1.21.10"
+}
+```
+
+<div align="center">
+  <h3>compare_versions_detailed</h3>
+</div>
+
+<div align="center">
+
+Compare versions with detailed AST-level analysis.
+
+<table>
+  <tr>
+    <th>Parameter</th>
+    <th>Type</th>
+    <th>Description</th>
+  </tr>
+  <tr>
+    <td><code>fromVersion</code></td>
+    <td>string</td>
+    <td>Source Minecraft version</td>
+  </tr>
+  <tr>
+    <td><code>toVersion</code></td>
+    <td>string</td>
+    <td>Target Minecraft version</td>
+  </tr>
+  <tr>
+    <td><code>mapping</code></td>
+    <td>"yarn" | "mojmap"</td>
+    <td>Mapping type to use</td>
+  </tr>
+  <tr>
+    <td><code>packages</code></td>
+    <td>string[] (optional)</td>
+    <td>Specific packages to compare</td>
+  </tr>
+  <tr>
+    <td><code>maxClasses</code></td>
+    <td>number (optional)</td>
+    <td>Maximum classes (default: 1000)</td>
+  </tr>
+</table>
+
+</div>
+
+**Example:**
+
+```json
+{
+  "fromVersion": "1.21.10",
+  "toVersion": "1.21.11",
+  "mapping": "yarn",
+  "packages": ["net.minecraft.entity"]
+}
+```
+
+<div align="center">
+  <h3>index_minecraft_version</h3>
+</div>
+
+<div align="center">
+
+Create a full-text search index for fast searching.
+
+<table>
+  <tr>
+    <th>Parameter</th>
+    <th>Type</th>
+    <th>Description</th>
+  </tr>
+  <tr>
+    <td><code>version</code></td>
+    <td>string</td>
+    <td>Minecraft version to index</td>
+  </tr>
+  <tr>
+    <td><code>mapping</code></td>
+    <td>"yarn" | "mojmap"</td>
+    <td>Mapping type</td>
+  </tr>
+</table>
+
+</div>
+
+**Example:**
+
+```json
+{
+  "version": "1.21.10",
+  "mapping": "yarn"
+}
+```
+
+<div align="center">
+  <h3>search_indexed</h3>
+</div>
+
+<div align="center">
+
+Fast full-text search using pre-built index (requires index_minecraft_version first).
+
+<table>
+  <tr>
+    <th>Parameter</th>
+    <th>Type</th>
+    <th>Description</th>
+  </tr>
+  <tr>
+    <td><code>query</code></td>
+    <td>string</td>
+    <td>Search query (supports FTS5 syntax: AND, OR, NOT, "phrase", prefix*)</td>
+  </tr>
+  <tr>
+    <td><code>version</code></td>
+    <td>string</td>
+    <td>Minecraft version</td>
+  </tr>
+  <tr>
+    <td><code>mapping</code></td>
+    <td>"yarn" | "mojmap"</td>
+    <td>Mapping type</td>
+  </tr>
+  <tr>
+    <td><code>types</code></td>
+    <td>("class" | "method" | "field")[] (optional)</td>
+    <td>Entry types to search</td>
+  </tr>
+  <tr>
+    <td><code>limit</code></td>
+    <td>number (optional)</td>
+    <td>Maximum results (default: 100)</td>
+  </tr>
+</table>
+
+</div>
+
+**Example:**
+
+```json
+{
+  "query": "entity AND damage",
+  "version": "1.21.10",
+  "mapping": "yarn",
+  "types": ["method"],
+  "limit": 50
+}
+```
+
+<div align="center">
+  <h3>get_documentation</h3>
+</div>
+
+<div align="center">
+
+Get documentation for Minecraft classes and concepts.
+
+<table>
+  <tr>
+    <th>Parameter</th>
+    <th>Type</th>
+    <th>Description</th>
+  </tr>
+  <tr>
+    <td><code>className</code></td>
+    <td>string</td>
+    <td>Class name to get documentation for</td>
+  </tr>
+</table>
+
+</div>
+
+**Example:**
+
+```json
+{
+  "className": "Entity"
+}
+```
+
+<div align="center">
+  <h3>search_documentation</h3>
+</div>
+
+<div align="center">
+
+Search for documentation across all Minecraft/Fabric topics.
+
+<table>
+  <tr>
+    <th>Parameter</th>
+    <th>Type</th>
+    <th>Description</th>
+  </tr>
+  <tr>
+    <td><code>query</code></td>
+    <td>string</td>
+    <td>Search query</td>
+  </tr>
+</table>
+
+</div>
+
+**Example:**
+
+```json
+{
+  "query": "block entity"
+}
+```
+
+---
+
+<div align="center">
+  <h2>Phase 3: Mod Analysis Tools</h2>
+</div>
+
+<div align="center">
+  <h3>analyze_mod_jar</h3>
+</div>
+
+<div align="center">
+
+Analyze third-party mod JARs to extract comprehensive metadata.
+
+<table>
+  <tr>
+    <th>Parameter</th>
+    <th>Type</th>
+    <th>Description</th>
+  </tr>
+  <tr>
+    <td><code>jarPath</code></td>
+    <td>string</td>
+    <td>Local path to mod JAR file (WSL or Windows path)</td>
+  </tr>
+  <tr>
+    <td><code>includeAllClasses</code></td>
+    <td>boolean (optional)</td>
+    <td>Include full class list (default: false)</td>
+  </tr>
+  <tr>
+    <td><code>includeRawMetadata</code></td>
+    <td>boolean (optional)</td>
+    <td>Include raw metadata files (default: false)</td>
+  </tr>
+</table>
+
+</div>
+
+<div align="center">
+
+**Supports:** Fabric, Quilt, Forge, and NeoForge mods
+
+**Returns:** Mod ID, version, dependencies, entry points, mixin configurations, class statistics, and more
+
+</div>
+
+**Example:**
+
+```json
+{
+  "jarPath": "C:\\mods\\meteor-client.jar",
+  "includeAllClasses": false,
+  "includeRawMetadata": true
 }
 ```
 
@@ -397,6 +1031,10 @@ All data is cached in a platform-specific directory:
     <td>Registry data (blocks, items, etc.)</td>
   </tr>
   <tr>
+    <td><code>search-index/</code></td>
+    <td>SQLite FTS5 full-text search indexes<br><code>└── 1.21.10-yarn.db</code></td>
+  </tr>
+  <tr>
     <td><code>resources/</code></td>
     <td>Downloaded tools (Vineflower, tiny-remapper)</td>
   </tr>
@@ -413,6 +1051,7 @@ All data is cached in a platform-specific directory:
 
 **Cache Size:**
 - ~400-500 MB per Minecraft version (JAR + mappings + decompiled source)
+- ~50-100 MB per search index (optional, created on-demand with index_minecraft_version)
 - Vineflower + tiny-remapper: ~1 MB (one-time download)
 
 <div align="center">
@@ -427,7 +1066,7 @@ All data is cached in a platform-specific directory:
   </tr>
   <tr>
     <td><b>MCP SDK</b></td>
-    <td><a href="https://github.com/modelcontextprotocol/typescript-sdk">@modelcontextprotocol/sdk</a></td>
+    <td><a href="https://github.com/modelcontextprotocol/typescript-sdk">@modelcontextprotocol/sdk 1.0.4</a></td>
   </tr>
   <tr>
     <td><b>Decompiler</b></td>
@@ -447,7 +1086,15 @@ All data is cached in a platform-specific directory:
   </tr>
   <tr>
     <td><b>Database</b></td>
-    <td><a href="https://github.com/WiseLibs/better-sqlite3">better-sqlite3</a> (metadata caching)</td>
+    <td><a href="https://github.com/WiseLibs/better-sqlite3">better-sqlite3</a> (metadata caching & FTS5 indexing)</td>
+  </tr>
+  <tr>
+    <td><b>JAR Parsing</b></td>
+    <td><a href="https://github.com/cthackers/adm-zip">adm-zip</a> (mod JAR analysis & bytecode extraction)</td>
+  </tr>
+  <tr>
+    <td><b>Schema Validation</b></td>
+    <td><a href="https://github.com/colinhacks/zod">Zod</a> (tool input validation)</td>
   </tr>
 </table>
 </div>
@@ -660,7 +1307,7 @@ When you request another class from the same version:
   <tr>
     <td><b>Build from Source</b></td>
     <td>
-      <pre>git clone https://github.com/your-org/minecraft-dev-mcp.git
+      <pre>git clone https://github.com/MCDxAI/minecraft-dev-mcp.git
 cd minecraft-dev-mcp
 npm install
 npm run build</pre>
@@ -734,11 +1381,11 @@ npm run build</pre>
   </tr>
   <tr>
     <td><b>Issues</b></td>
-    <td><a href="https://github.com/your-org/minecraft-dev-mcp/issues">GitHub Issues</a></td>
+    <td><a href="https://github.com/MCDxAI/minecraft-dev-mcp/issues">GitHub Issues</a></td>
   </tr>
   <tr>
     <td><b>Discussions</b></td>
-    <td><a href="https://github.com/your-org/minecraft-dev-mcp/discussions">GitHub Discussions</a></td>
+    <td><a href="https://github.com/MCDxAI/minecraft-dev-mcp/discussions">GitHub Discussions</a></td>
   </tr>
   <tr>
     <td><b>Documentation</b></td>

@@ -29,7 +29,8 @@
       "Bash(npx vitest:*)",
       "Bash(git reset:*)",
       "Bash(npx tsx:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(git remote get-url:*)"
     ]
   },
   "enableAllProjectMcpServers": true,
