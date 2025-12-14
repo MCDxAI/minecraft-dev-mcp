@@ -6,8 +6,8 @@ import {
   isUncWslPath,
   isWindowsDrivePath,
   isWslMountPath,
-  normalizePath,
   normalizeOptionalPath,
+  normalizePath,
   validatePathFormat,
 } from '../../src/utils/path-converter.js';
 import { resetPlatformCache } from '../../src/utils/platform.js';
@@ -190,7 +190,7 @@ describe('Path Converter', () => {
     it('should normalize valid paths', () => {
       const result = normalizeOptionalPath('/home/user/project');
       expect(result).toBeDefined();
-      expect(result!.length).toBeGreaterThan(0);
+      expect(result?.length).toBeGreaterThan(0);
     });
   });
 

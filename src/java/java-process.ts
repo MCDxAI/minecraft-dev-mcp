@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { JavaProcessError } from '../utils/errors.js';
 import { logger } from '../utils/logger.js';
-import { normalizePath, normalizeOptionalPath } from '../utils/path-converter.js';
+import { normalizeOptionalPath, normalizePath } from '../utils/path-converter.js';
 
 export interface JavaProcessOptions {
   maxMemory?: string; // e.g., "2G"
@@ -51,11 +51,7 @@ export async function executeJavaProcess(
   // Normalize file path arguments (paths that look like absolute paths)
   const normalizedArgs = args.map((arg) => {
     // Normalize arguments that look like absolute file paths
-    if (
-      arg.startsWith('/') ||
-      arg.startsWith('\\') ||
-      /^[A-Za-z]:/.test(arg)
-    ) {
+    if (arg.startsWith('/') || arg.startsWith('\\') || /^[A-Za-z]:/.test(arg)) {
       return normalizePath(arg);
     }
     return arg;

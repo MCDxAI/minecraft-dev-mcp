@@ -37,7 +37,5 @@
     ]
   },
   "enableAllProjectMcpServers": true,
-  "enabledMcpjsonServers": [
-    "minecraft-dev"
-  ]
+  "enabledMcpjsonServers": ["minecraft-dev"]
 }

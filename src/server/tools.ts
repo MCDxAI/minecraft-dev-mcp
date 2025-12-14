@@ -43,7 +43,9 @@ const GetRegistryDataSchema = z.object({
 
 const RemapModJarSchema = z.object({
   inputJar: z.string().describe('Path to the input mod JAR file (supports WSL and Windows paths)'),
-  outputJar: z.string().describe('Path for the output remapped JAR file (supports WSL and Windows paths)'),
+  outputJar: z
+    .string()
+    .describe('Path for the output remapped JAR file (supports WSL and Windows paths)'),
   mcVersion: z.string().describe('Minecraft version the mod is for'),
   toMapping: z.enum(['yarn', 'mojmap']).describe('Target mapping type'),
 });
@@ -76,13 +78,21 @@ const CompareVersionsSchema = z.object({
 
 // Phase 2 Tool Schemas
 const AnalyzeMixinSchema = z.object({
-  source: z.string().describe('Mixin source code (Java) or path to a JAR/directory (supports WSL and Windows paths)'),
+  source: z
+    .string()
+    .describe(
+      'Mixin source code (Java) or path to a JAR/directory (supports WSL and Windows paths)',
+    ),
   mcVersion: z.string().describe('Minecraft version to validate against'),
   mapping: z.enum(['yarn', 'mojmap']).optional().describe('Mapping type (default: yarn)'),
 });
 
 const ValidateAccessWidenerSchema = z.object({
-  content: z.string().describe('Access widener file content or path to .accesswidener file (supports WSL and Windows paths)'),
+  content: z
+    .string()
+    .describe(
+      'Access widener file content or path to .accesswidener file (supports WSL and Windows paths)',
+    ),
   mcVersion: z.string().describe('Minecraft version to validate against'),
   mapping: z.enum(['yarn', 'mojmap']).optional().describe('Mapping type (default: yarn)'),
 });
@@ -124,7 +134,9 @@ const SearchDocumentationSchema = z.object({
 
 // Phase 3 Tool Schemas
 const AnalyzeModJarSchema = z.object({
-  jarPath: z.string().describe('Local file path to the mod JAR file (supports WSL and Windows paths)'),
+  jarPath: z
+    .string()
+    .describe('Local file path to the mod JAR file (supports WSL and Windows paths)'),
   includeAllClasses: z
     .boolean()
     .optional()
@@ -369,7 +381,8 @@ export const tools = [
       properties: {
         content: {
           type: 'string',
-          description: 'Access widener file content or path to .accesswidener file (WSL or Windows path)',
+          description:
+            'Access widener file content or path to .accesswidener file (WSL or Windows path)',
         },
         mcVersion: {
           type: 'string',
