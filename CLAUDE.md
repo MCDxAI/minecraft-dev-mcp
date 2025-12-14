@@ -6,6 +6,11 @@ This document provides essential context for working with the Minecraft Dev MCP 
 
 This is a **Model Context Protocol (MCP) server** that provides AI assistants with access to decompiled Minecraft source code, registry data, and modding tools. It enables LLMs to help developers with Minecraft mod development by providing accurate, version-specific source code and game data.
 
+## Release Status
+
+- Phase 1 & 2 complete (core services, remap/decompile/search/compare) as of 2025-12-06; 29 integration tests pass end-to-end.
+- Phase 3 focus: third-party mod analysis; missing piece is decompiling remapped mod JARs (see TODO below).
+
 ## Architecture
 
 ### Core Services (`src/services/`)
@@ -44,10 +49,12 @@ This is a **Model Context Protocol (MCP) server** that provides AI assistants wi
 
 1. **tiny-remapper.ts** - Wraps tiny-remapper JAR for remapping obfuscated classes
    - Handles namespace conversions (official → intermediary → named)
+   - Uses tiny-remapper 0.12.0 (multi-threaded ASM remapper)
 
 2. **vineflower.ts** - Wraps VineFlower JAR for decompilation
    - **Creates temporary folders**: `libraries/`, `versions/`, `logs/` in CWD during decompilation
    - These are VineFlower's workspace files and should be gitignored
+   - Defaults align with Vineflower 1.11.2 (`-dgs=1 -hdc=0 -asc=1 -rsy=1 -lit=1`)
 
 3. **mc-data-gen.ts** - Runs Minecraft's data generator to extract registry data
    - **MC 1.18+**: Uses bundler format: `java -DbundlerMainClass=net.minecraft.data.Main -jar server.jar`
@@ -102,6 +109,13 @@ This is a **Model Context Protocol (MCP) server** that provides AI assistants wi
 - `decompiled/{version}/{mapping}/` - Decompiled source code
 - `registry/{version}/` - Registry data
 - `resources/` - Java tool JARs (VineFlower, tiny-remapper)
+- Central cache is shared across workspaces; expect ~400–450 MB per MC version (JAR + mappings + remapped + decompiled + registry).
+
+## Build & ESM Requirements
+
+- ESM-only: `package.json` must keep `"type": "module"`; `tsconfig` uses `"module": "ES2022"`/bundler resolution.
+- Local imports must include `.js` extensions after build (e.g., `./utils.js`), not `.ts`.
+- No CommonJS `require`; all tooling/scripts assume ES modules.
 
 ## Critical Implementation Details
 
@@ -218,15 +232,18 @@ The code should work automatically, but be aware:
 - Registry output location may change between versions
 - Always test with integration tests
 
-## AI Reference Folder
+## Error Handling, Security, and Performance Notes
 
-**IMPORTANT**: The `ai_reference/` folder contains reference implementations and documentation from related projects:
-- `minecraft-registry-mcp/` - Python-based registry MCP server (our reference for registry extraction)
-- Other Minecraft MCP servers and tools
+- Network work uses retries/backoff; Java processes run with timeouts and stderr capture.
+- Integrity checks: SHA-1/256 verification on downloads; cache rebuild on corruption.
+- Security: path traversal guardrails on class names and file writes; Java processes memory-capped.
+- Performance: favors lazy decompilation, parallel workers, and LRU-style cache eviction; compress/evict old versions if storage is tight.
 
-**NOTE**: This folder is **.gitignored** to keep the repo clean, but you should **ALWAYS read and reference these files** when working on related features. They contain valuable implementation details and solved problems.
+## Reference Tools
 
-**If you see errors** about files not existing in `ai_reference/`, the files ARE there - it's just gitignored. You can still read them with the Read tool.
+- FabricMod-Remapper — exemplar for two-phase Yarn remapping strategy (official → intermediary → yarn).
+- mojang2tiny — reference implementation for converting Mojang mappings to Tiny v2.
+- tiny-remapper — upstream bytecode remapper we wrap; check changelog for behavior changes.
 
 ## Architecture Decisions
 
@@ -369,10 +386,3 @@ Analyzes third-party mod JARs without requiring Java. Performs:
 - Learning mod development techniques
 - Debugging mod interactions
 - Educational reference for Minecraft modding patterns
-
-## Related Documentation
-
-- `ARCHITECTURE.md` - High-level architecture overview
-- `BUILD_SUMMARY.md` - Build process and setup
-- `INTEGRATION_TEST_STATUS.md` - Test status and known issues
-- `ai_reference/minecraft-registry-mcp/` - Python reference implementation
