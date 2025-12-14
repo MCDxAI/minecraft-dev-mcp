@@ -1,18 +1,18 @@
-import AdmZip from 'adm-zip';
 import { existsSync, statSync } from 'node:fs';
-import { logger } from '../utils/logger.js';
+import AdmZip from 'adm-zip';
 import type {
-  ModLoader,
-  ModEnvironment,
+  DependencyType,
+  ModAnalysisResult,
+  ModClass,
+  ModContact,
   ModDependency,
   ModEntrypoint,
-  ModContact,
-  ModPerson,
+  ModEnvironment,
+  ModLoader,
   ModMixinConfig,
-  ModClass,
-  ModAnalysisResult,
-  DependencyType,
+  ModPerson,
 } from '../types/minecraft.js';
+import { logger } from '../utils/logger.js';
 
 /**
  * Options for mod analysis
@@ -118,10 +118,7 @@ export class ModAnalyzerService {
   /**
    * Analyze a mod JAR file
    */
-  async analyzeMod(
-    jarPath: string,
-    options: ModAnalyzerOptions = {},
-  ): Promise<ModAnalysisResult> {
+  async analyzeMod(jarPath: string, options: ModAnalyzerOptions = {}): Promise<ModAnalysisResult> {
     const startTime = Date.now();
 
     // Validate JAR exists
@@ -196,7 +193,9 @@ export class ModAnalyzerService {
       };
     }
 
-    logger.info(`Mod analysis complete: ${metadata.id} v${metadata.version} (${loaderInfo.loader})`);
+    logger.info(
+      `Mod analysis complete: ${metadata.id} v${metadata.version} (${loaderInfo.loader})`,
+    );
     return result;
   }
 
@@ -391,7 +390,7 @@ export class ModAnalyzerService {
     if (javaDep) {
       const match = javaDep.versionRange.match(/>=?(\d+)/);
       if (match) {
-        javaVersion = parseInt(match[1], 10);
+        javaVersion = Number.parseInt(match[1], 10);
       }
     }
 
@@ -469,7 +468,7 @@ export class ModAnalyzerService {
       for (const dep of loader.depends) {
         const versionRange = Array.isArray(dep.versions)
           ? dep.versions.join(' || ')
-          : dep.versions ?? '*';
+          : (dep.versions ?? '*');
         dependencies.push({
           modId: dep.id,
           versionRange,
@@ -482,7 +481,7 @@ export class ModAnalyzerService {
       for (const dep of loader.breaks) {
         const versionRange = Array.isArray(dep.versions)
           ? dep.versions.join(' || ')
-          : dep.versions ?? '*';
+          : (dep.versions ?? '*');
         dependencies.push({
           modId: dep.id,
           versionRange,
@@ -590,8 +589,7 @@ export class ModAnalyzerService {
     nestedJars?: string[];
     entrypointClasses: string[];
   } {
-    const tomlPath =
-      loader === 'neoforge' ? 'META-INF/neoforge.mods.toml' : 'META-INF/mods.toml';
+    const tomlPath = loader === 'neoforge' ? 'META-INF/neoforge.mods.toml' : 'META-INF/mods.toml';
     const entry = zip.getEntry(tomlPath);
 
     let id = 'unknown';
@@ -785,10 +783,7 @@ export class ModAnalyzerService {
   /**
    * Get raw mixin config JSON
    */
-  private getRawMixinConfigs(
-    zip: AdmZip,
-    configFiles: string[],
-  ): Record<string, unknown> {
+  private getRawMixinConfigs(zip: AdmZip, configFiles: string[]): Record<string, unknown> {
     const configs: Record<string, unknown> = {};
 
     for (const configFile of configFiles) {
@@ -850,9 +845,7 @@ export class ModAnalyzerService {
       total++;
 
       // Convert path to class name
-      const className = entry.entryName
-        .replace(/\//g, '.')
-        .replace(/\.class$/, '');
+      const className = entry.entryName.replace(/\//g, '.').replace(/\.class$/, '');
 
       // Get package
       const lastDot = className.lastIndexOf('.');
@@ -908,10 +901,7 @@ export class ModAnalyzerService {
   /**
    * Analyze class bytecode for detailed information
    */
-  private analyzeClassBytecode(
-    data: Buffer,
-    className: string,
-  ): Partial<ModClass> {
+  private analyzeClassBytecode(data: Buffer, className: string): Partial<ModClass> {
     const result: Partial<ModClass> = {};
 
     // Basic class file validation
@@ -937,13 +927,15 @@ export class ModAnalyzerService {
         offset++;
 
         switch (tag) {
-          case 1: // CONSTANT_Utf8
+          case 1: {
+            // CONSTANT_Utf8
             const length = data.readUInt16BE(offset);
             offset += 2;
             const value = data.toString('utf8', offset, offset + length);
             constantPool.push({ tag, value });
             offset += length;
             break;
+          }
           case 3: // CONSTANT_Integer
           case 4: // CONSTANT_Float
             constantPool.push({ tag });

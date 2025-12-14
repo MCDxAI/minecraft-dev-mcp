@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { verifyJavaVersion } from '../../src/java/java-process.js';
 import { tools } from '../../src/server/tools.js';
 

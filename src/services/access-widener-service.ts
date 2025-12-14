@@ -5,20 +5,20 @@
  * Access wideners allow mods to change the access level of classes, methods, and fields.
  */
 
-import { readFileSync, existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { logger } from '../utils/logger.js';
-import { AccessWidenerParseError } from '../utils/errors.js';
 import { getCacheManager } from '../cache/cache-manager.js';
-import { getDecompiledPath } from '../utils/paths.js';
 import type {
   AccessWidener,
   AccessWidenerEntry,
-  AccessWidenerType,
   AccessWidenerTarget,
+  AccessWidenerType,
   AccessWidenerValidation,
   MappingType,
 } from '../types/minecraft.js';
+import { AccessWidenerParseError } from '../utils/errors.js';
+import { logger } from '../utils/logger.js';
+import { getDecompiledPath } from '../utils/paths.js';
 
 /**
  * Access Widener Service
@@ -46,7 +46,7 @@ export class AccessWidenerService {
       if (line.startsWith('accessWidener')) {
         const parts = line.split(/\s+/);
         if (parts.length >= 3) {
-          version = parseInt(parts[1].replace('v', ''), 10) || 1;
+          version = Number.parseInt(parts[1].replace('v', ''), 10) || 1;
           namespace = parts[2];
         }
         continue;
@@ -190,8 +190,10 @@ export class AccessWidenerService {
     // Validate each entry
     for (const entry of accessWidener.entries) {
       const validation = this.validateEntry(entry, decompiledPath);
-      errors.push(...validation.errors.map(e => ({ entry, message: e, suggestion: validation.suggestion })));
-      warnings.push(...validation.warnings.map(w => ({ entry, message: w })));
+      errors.push(
+        ...validation.errors.map((e) => ({ entry, message: e, suggestion: validation.suggestion })),
+      );
+      warnings.push(...validation.warnings.map((w) => ({ entry, message: w })));
     }
 
     return {
@@ -213,7 +215,7 @@ export class AccessWidenerService {
     let suggestion: string | undefined;
 
     // Check if class exists
-    const classPath = join(decompiledPath, entry.className.replace(/\./g, '/') + '.java');
+    const classPath = join(decompiledPath, `${entry.className.replace(/\./g, '/')}.java`);
 
     if (!existsSync(classPath)) {
       errors.push(`Class not found: ${entry.className}`);
@@ -266,7 +268,9 @@ export class AccessWidenerService {
         }
       } else if (entry.accessType === 'mutable') {
         // Check if field is already non-final
-        const fieldRegex = new RegExp(`\\b(private|protected|public)\\s+(?!final)\\w+\\s+${entry.memberName}\\b`);
+        const fieldRegex = new RegExp(
+          `\\b(private|protected|public)\\s+(?!final)\\w+\\s+${entry.memberName}\\b`,
+        );
         if (fieldRegex.test(source)) {
           warnings.push(`Field '${entry.memberName}' appears to already be mutable`);
         }
@@ -282,7 +286,9 @@ export class AccessWidenerService {
   private methodExists(source: string, methodName: string): boolean {
     // Handle constructor
     if (methodName === '<init>') {
-      return source.includes('public ') || source.includes('private ') || source.includes('protected ');
+      return (
+        source.includes('public ') || source.includes('private ') || source.includes('protected ')
+      );
     }
 
     // Handle clinit
@@ -307,9 +313,9 @@ export class AccessWidenerService {
    */
   private extractMethods(source: string): string[] {
     const methods: string[] = [];
-    const regex = /(?:public|private|protected)\s+(?:static\s+)?(?:final\s+)?(?:[\w<>,\[\]]+)\s+(\w+)\s*\(/g;
-    let match;
-    while ((match = regex.exec(source)) !== null) {
+    const regex =
+      /(?:public|private|protected)\s+(?:static\s+)?(?:final\s+)?(?:[\w<>,\[\]]+)\s+(\w+)\s*\(/g;
+    for (const match of source.matchAll(regex)) {
       methods.push(match[1]);
     }
     return [...new Set(methods)];
@@ -320,9 +326,9 @@ export class AccessWidenerService {
    */
   private extractFields(source: string): string[] {
     const fields: string[] = [];
-    const regex = /(?:public|private|protected)\s+(?:static\s+)?(?:final\s+)?(?:[\w<>,\[\]]+)\s+(\w+)\s*[;=]/g;
-    let match;
-    while ((match = regex.exec(source)) !== null) {
+    const regex =
+      /(?:public|private|protected)\s+(?:static\s+)?(?:final\s+)?(?:[\w<>,\[\]]+)\s+(\w+)\s*[;=]/g;
+    for (const match of source.matchAll(regex)) {
       fields.push(match[1]);
     }
     return [...new Set(fields)];
@@ -333,7 +339,9 @@ export class AccessWidenerService {
    */
   private findSimilarClass(className: string, basePath: string): string | null {
     const simpleName = className.split('.').pop() || className;
-    const packagePath = className.substring(0, className.length - simpleName.length - 1).replace(/\./g, '/');
+    const packagePath = className
+      .substring(0, className.length - simpleName.length - 1)
+      .replace(/\./g, '/');
     const packageDir = join(basePath, packagePath);
 
     if (!existsSync(packageDir)) {
@@ -421,10 +429,7 @@ export class AccessWidenerService {
     }>,
     namespace: MappingType = 'yarn',
   ): string {
-    const lines: string[] = [
-      `accessWidener v2 ${namespace === 'yarn' ? 'named' : namespace}`,
-      '',
-    ];
+    const lines: string[] = [`accessWidener v2 ${namespace === 'yarn' ? 'named' : namespace}`, ''];
 
     for (const entry of entries) {
       const classPath = entry.className.replace(/\./g, '/');
@@ -432,9 +437,13 @@ export class AccessWidenerService {
       if (entry.targetType === 'class') {
         lines.push(`${entry.accessType} class ${classPath}`);
       } else if (entry.targetType === 'method' && entry.memberName && entry.memberDescriptor) {
-        lines.push(`${entry.accessType} method ${classPath} ${entry.memberName} ${entry.memberDescriptor}`);
+        lines.push(
+          `${entry.accessType} method ${classPath} ${entry.memberName} ${entry.memberDescriptor}`,
+        );
       } else if (entry.targetType === 'field' && entry.memberName && entry.memberDescriptor) {
-        lines.push(`${entry.accessType} field ${classPath} ${entry.memberName} ${entry.memberDescriptor}`);
+        lines.push(
+          `${entry.accessType} field ${classPath} ${entry.memberName} ${entry.memberDescriptor}`,
+        );
       }
     }
 
@@ -446,15 +455,15 @@ export class AccessWidenerService {
    */
   descriptorToReadable(descriptor: string): string {
     const typeMap: Record<string, string> = {
-      'Z': 'boolean',
-      'B': 'byte',
-      'C': 'char',
-      'S': 'short',
-      'I': 'int',
-      'J': 'long',
-      'F': 'float',
-      'D': 'double',
-      'V': 'void',
+      Z: 'boolean',
+      B: 'byte',
+      C: 'char',
+      S: 'short',
+      I: 'int',
+      J: 'long',
+      F: 'float',
+      D: 'double',
+      V: 'void',
     };
 
     let i = 0;
@@ -480,7 +489,7 @@ export class AccessWidenerService {
       if (c === '[') {
         // Array
         i++;
-        return parseType() + '[]';
+        return `${parseType()}[]`;
       }
 
       return '';

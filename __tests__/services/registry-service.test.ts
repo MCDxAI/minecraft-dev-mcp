@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeAll } from 'vitest';
-import { getRegistryService } from '../../src/services/registry-service.js';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { verifyJavaVersion } from '../../src/java/java-process.js';
+import { getRegistryService } from '../../src/services/registry-service.js';
 import { TEST_VERSION } from '../test-constants.js';
 
 /**

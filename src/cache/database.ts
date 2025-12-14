@@ -1,9 +1,9 @@
-import Database from 'better-sqlite3';
 import { existsSync } from 'node:fs';
-import { paths } from '../utils/paths.js';
+import Database from 'better-sqlite3';
+import type { MappingType } from '../types/minecraft.js';
 import { ensureDir } from '../utils/file-utils.js';
 import { logger } from '../utils/logger.js';
-import type { MappingType } from '../types/minecraft.js';
+import { paths } from '../utils/paths.js';
 
 export interface CachedVersion {
   version: string;
@@ -139,7 +139,9 @@ class CacheDatabase {
 
   // Mapping operations
   getMapping(mcVersion: string, mappingType: MappingType): CachedMapping | undefined {
-    const stmt = this.db.prepare('SELECT * FROM mappings WHERE mc_version = ? AND mapping_type = ?');
+    const stmt = this.db.prepare(
+      'SELECT * FROM mappings WHERE mc_version = ? AND mapping_type = ?',
+    );
     return stmt.get(mcVersion, mappingType) as CachedMapping | undefined;
   }
 

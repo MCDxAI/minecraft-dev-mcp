@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
-import { getMixinService } from '../../src/services/mixin-service.js';
+import { describe, expect, it } from 'vitest';
 import { handleAnalyzeMixin } from '../../src/server/tools.js';
-import { TEST_VERSION, TEST_MAPPING } from '../test-constants.js';
+import { getMixinService } from '../../src/services/mixin-service.js';
+import { TEST_MAPPING, TEST_VERSION } from '../test-constants.js';
 
 /**
  * Mixin Service Tests
@@ -38,11 +38,11 @@ public class EntityMixin {
 
     expect(mixin).toBeDefined();
     expect(mixin).not.toBeNull();
-    expect(mixin!.className).toBe('com.example.mixin.EntityMixin');
-    expect(mixin!.targets).toContain('Entity');
-    expect(mixin!.injections.length).toBeGreaterThan(0);
-    expect(mixin!.injections[0].type).toBe('inject');
-    expect(mixin!.injections[0].targetMethod).toBe('tick');
+    expect(mixin?.className).toBe('com.example.mixin.EntityMixin');
+    expect(mixin?.targets).toContain('Entity');
+    expect(mixin?.injections.length).toBeGreaterThan(0);
+    expect(mixin?.injections[0].type).toBe('inject');
+    expect(mixin?.injections[0].targetMethod).toBe('tick');
   });
 
   it('should parse mixin with multiple targets', () => {
@@ -61,9 +61,9 @@ public class MultiTargetMixin {
     const mixin = mixinService.parseMixinSource(source);
 
     expect(mixin).toBeDefined();
-    expect(mixin!.targets.length).toBe(2);
-    expect(mixin!.targets).toContain('Entity');
-    expect(mixin!.targets).toContain('LivingEntity');
+    expect(mixin?.targets.length).toBe(2);
+    expect(mixin?.targets).toContain('Entity');
+    expect(mixin?.targets).toContain('LivingEntity');
   });
 
   it('should parse @Shadow annotations', () => {
@@ -88,15 +88,15 @@ public class EntityMixin {
     const mixin = mixinService.parseMixinSource(source);
 
     expect(mixin).toBeDefined();
-    expect(mixin!.shadows.length).toBe(2);
+    expect(mixin?.shadows.length).toBe(2);
 
-    const fieldShadow = mixin!.shadows.find(s => s.name === 'age');
+    const fieldShadow = mixin?.shadows.find((s) => s.name === 'age');
     expect(fieldShadow).toBeDefined();
-    expect(fieldShadow!.isMethod).toBe(false);
+    expect(fieldShadow?.isMethod).toBe(false);
 
-    const methodShadow = mixin!.shadows.find(s => s.name === 'remove');
+    const methodShadow = mixin?.shadows.find((s) => s.name === 'remove');
     expect(methodShadow).toBeDefined();
-    expect(methodShadow!.isMethod).toBe(true);
+    expect(methodShadow?.isMethod).toBe(true);
   });
 
   it('should return null for non-mixin source', () => {

@@ -1,10 +1,10 @@
-import { getDataGenerator } from '../java/mc-data-gen.js';
-import { getVersionManager } from './version-manager.js';
-import { getRegistryPath } from '../utils/paths.js';
-import { logger } from '../utils/logger.js';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { getDataGenerator } from '../java/mc-data-gen.js';
 import { ensureDir } from '../utils/file-utils.js';
+import { logger } from '../utils/logger.js';
+import { getRegistryPath } from '../utils/paths.js';
+import { getVersionManager } from './version-manager.js';
 
 /**
  * Service for extracting and caching Minecraft registry data
@@ -16,10 +16,7 @@ export class RegistryService {
   /**
    * Get registry data for a version
    */
-  async getRegistryData(
-    version: string,
-    registryType?: string,
-  ): Promise<Record<string, unknown>> {
+  async getRegistryData(version: string, registryType?: string): Promise<Record<string, unknown>> {
     // Get the actual registries.json file path (may be in different locations)
     const registriesFile = await this.getRegistriesFilePath(version);
 
@@ -74,7 +71,11 @@ export class RegistryService {
     const registryDir = getRegistryPath(version);
     ensureDir(registryDir);
 
-    const registriesFile = await this.dataGen.generateRegistryData(serverJarPath, registryDir, version);
+    const registriesFile = await this.dataGen.generateRegistryData(
+      serverJarPath,
+      registryDir,
+      version,
+    );
 
     logger.info(`Registry data generated: ${registriesFile}`);
     return registriesFile;

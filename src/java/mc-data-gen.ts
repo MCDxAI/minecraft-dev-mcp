@@ -1,9 +1,9 @@
-import { executeJavaProcess } from './java-process.js';
-import { logger } from '../utils/logger.js';
-import { RegistryExtractionError } from '../utils/errors.js';
-import { ensureDir } from '../utils/file-utils.js';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { RegistryExtractionError } from '../utils/errors.js';
+import { ensureDir } from '../utils/file-utils.js';
+import { logger } from '../utils/logger.js';
+import { executeJavaProcess } from './java-process.js';
 
 /**
  * Minecraft data generator wrapper for extracting registry data
@@ -48,33 +48,41 @@ export class MinecraftDataGenerator {
       if (isLegacy) {
         // Pre-1.18: Use -cp with explicit main class
         logger.debug('Using legacy data generator format (pre-1.18)');
-        await executeJavaProcess(serverJarPath, ['--reports', '--all', '--server', '--output', outputDir], {
-          maxMemory: '2G',
-          minMemory: '512M',
-          timeout: 5 * 60 * 1000,
-          mainClass: 'net.minecraft.data.Main',
-          onStdout: (data) => {
-            logger.debug(`[MC DataGen] ${data.trim()}`);
+        await executeJavaProcess(
+          serverJarPath,
+          ['--reports', '--all', '--server', '--output', outputDir],
+          {
+            maxMemory: '2G',
+            minMemory: '512M',
+            timeout: 5 * 60 * 1000,
+            mainClass: 'net.minecraft.data.Main',
+            onStdout: (data) => {
+              logger.debug(`[MC DataGen] ${data.trim()}`);
+            },
+            onStderr: (data) => {
+              logger.debug(`[MC DataGen] ${data.trim()}`);
+            },
           },
-          onStderr: (data) => {
-            logger.debug(`[MC DataGen] ${data.trim()}`);
-          },
-        });
+        );
       } else {
         // 1.18+: Use bundler format with -DbundlerMainClass
         logger.debug('Using bundler data generator format (1.18+)');
-        await executeJavaProcess(serverJarPath, ['--reports', '--all', '--server', '--output', outputDir], {
-          maxMemory: '2G',
-          minMemory: '512M',
-          timeout: 5 * 60 * 1000,
-          jvmArgs: ['-DbundlerMainClass=net.minecraft.data.Main'],
-          onStdout: (data) => {
-            logger.debug(`[MC DataGen] ${data.trim()}`);
+        await executeJavaProcess(
+          serverJarPath,
+          ['--reports', '--all', '--server', '--output', outputDir],
+          {
+            maxMemory: '2G',
+            minMemory: '512M',
+            timeout: 5 * 60 * 1000,
+            jvmArgs: ['-DbundlerMainClass=net.minecraft.data.Main'],
+            onStdout: (data) => {
+              logger.debug(`[MC DataGen] ${data.trim()}`);
+            },
+            onStderr: (data) => {
+              logger.debug(`[MC DataGen] ${data.trim()}`);
+            },
           },
-          onStderr: (data) => {
-            logger.debug(`[MC DataGen] ${data.trim()}`);
-          },
-        });
+        );
       }
 
       // Check for registries.json in multiple possible locations
@@ -95,7 +103,9 @@ export class MinecraftDataGenerator {
 
       if (!registriesFile) {
         const outputContents = existsSync(outputDir) ? readdirSync(outputDir) : [];
-        throw new Error(`Registry data not generated - registries.json not found in any expected location. Output directory contents: ${outputContents}`);
+        throw new Error(
+          `Registry data not generated - registries.json not found in any expected location. Output directory contents: ${outputContents}`,
+        );
       }
 
       logger.info(`Registry data generated: ${registriesFile}`);
@@ -133,7 +143,9 @@ export class MinecraftDataGenerator {
     // Registry format: { "minecraft:block": { "entries": {...} } }
     const fullName = registryName.includes(':') ? registryName : `minecraft:${registryName}`;
 
-    return (allRegistries as Record<string, unknown>)[fullName] as Record<string, unknown> | undefined;
+    return (allRegistries as Record<string, unknown>)[fullName] as
+      | Record<string, unknown>
+      | undefined;
   }
 }
 

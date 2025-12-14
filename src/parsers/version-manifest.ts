@@ -1,4 +1,4 @@
-import type { VersionManifest, VersionInfo, VersionJson } from '../types/minecraft.js';
+import type { VersionInfo, VersionJson, VersionManifest } from '../types/minecraft.js';
 import { VersionNotFoundError } from '../utils/errors.js';
 
 export const MOJANG_VERSION_MANIFEST_URL =

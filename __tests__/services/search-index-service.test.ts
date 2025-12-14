@@ -1,8 +1,8 @@
-import { describe, it, expect } from 'vitest';
-import { getSearchIndexService } from '../../src/services/search-index-service.js';
+import { describe, expect, it } from 'vitest';
 import { getCacheManager } from '../../src/cache/cache-manager.js';
 import { handleIndexVersion, handleSearchIndexed } from '../../src/server/tools.js';
-import { TEST_VERSION, TEST_MAPPING } from '../test-constants.js';
+import { getSearchIndexService } from '../../src/services/search-index-service.js';
+import { TEST_MAPPING, TEST_VERSION } from '../test-constants.js';
 
 /**
  * Search Index Service Tests
@@ -45,8 +45,10 @@ describe('Search Index Service', () => {
     const cacheManager = getCacheManager();
     const searchService = getSearchIndexService();
 
-    if (!cacheManager.hasDecompiledSource(TEST_VERSION, TEST_MAPPING) ||
-        !searchService.isIndexed(TEST_VERSION, TEST_MAPPING)) {
+    if (
+      !cacheManager.hasDecompiledSource(TEST_VERSION, TEST_MAPPING) ||
+      !searchService.isIndexed(TEST_VERSION, TEST_MAPPING)
+    ) {
       console.log('Skipping - not indexed');
       return;
     }
@@ -81,8 +83,10 @@ describe('Search Index Service', () => {
     const cacheManager = getCacheManager();
     const searchService = getSearchIndexService();
 
-    if (!cacheManager.hasDecompiledSource(TEST_VERSION, TEST_MAPPING) ||
-        !searchService.isIndexed(TEST_VERSION, TEST_MAPPING)) {
+    if (
+      !cacheManager.hasDecompiledSource(TEST_VERSION, TEST_MAPPING) ||
+      !searchService.isIndexed(TEST_VERSION, TEST_MAPPING)
+    ) {
       console.log('Skipping - not indexed');
       return;
     }

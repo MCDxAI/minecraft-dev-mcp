@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { getDocumentationService } from '../../src/services/documentation-service.js';
+import { describe, expect, it } from 'vitest';
 import { handleGetDocumentation, handleSearchDocumentation } from '../../src/server/tools.js';
+import { getDocumentationService } from '../../src/services/documentation-service.js';
 
 /**
  * Documentation Service Tests
@@ -18,10 +18,10 @@ describe('Documentation Service', () => {
     const doc = await docService.getDocumentation('net.minecraft.entity.Entity');
 
     expect(doc).toBeDefined();
-    expect(doc!.name).toBe('net.minecraft.entity.Entity');
-    expect(doc!.source).toBe('fabric_wiki');
-    expect(doc!.url).toBeDefined();
-    expect(doc!.summary).toBeDefined();
+    expect(doc?.name).toBe('net.minecraft.entity.Entity');
+    expect(doc?.source).toBe('fabric_wiki');
+    expect(doc?.url).toBeDefined();
+    expect(doc?.summary).toBeDefined();
   });
 
   it('should infer documentation for entity subclasses', async () => {
@@ -30,7 +30,7 @@ describe('Documentation Service', () => {
     const doc = await docService.getDocumentation('net.minecraft.entity.mob.ZombieEntity');
 
     expect(doc).toBeDefined();
-    expect(doc!.url).toContain('entity');
+    expect(doc?.url).toContain('entity');
   });
 
   it('should infer documentation for blocks', async () => {
@@ -39,7 +39,7 @@ describe('Documentation Service', () => {
     const doc = await docService.getDocumentation('net.minecraft.block.StoneBlock');
 
     expect(doc).toBeDefined();
-    expect(doc!.url).toContain('block');
+    expect(doc?.url).toContain('block');
   });
 
   it('should get topic documentation', async () => {
@@ -48,7 +48,7 @@ describe('Documentation Service', () => {
     const doc = await docService.getTopicDocumentation('mixin');
 
     expect(doc).toBeDefined();
-    expect(doc!.url).toContain('mixin');
+    expect(doc?.url).toContain('mixin');
   });
 
   it('should search documentation', () => {

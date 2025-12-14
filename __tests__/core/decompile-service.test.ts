@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeAll } from 'vitest';
-import { getDecompileService } from '../../src/services/decompile-service.js';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { verifyJavaVersion } from '../../src/java/java-process.js';
-import { TEST_VERSION, TEST_MAPPING } from '../test-constants.js';
+import { getDecompileService } from '../../src/services/decompile-service.js';
+import { TEST_MAPPING, TEST_VERSION } from '../test-constants.js';
 
 /**
  * Source Code Retrieval Tests
@@ -24,7 +24,7 @@ describe('Source Code Retrieval', () => {
     const source = await decompileService.getClassSource(
       TEST_VERSION,
       'net.minecraft.entity.Entity',
-      TEST_MAPPING
+      TEST_MAPPING,
     );
 
     expect(source).toBeDefined();
@@ -43,7 +43,7 @@ describe('Source Code Retrieval', () => {
     const source = await decompileService.getClassSource(
       TEST_VERSION,
       'net.minecraft.util.math.Vec3d',
-      TEST_MAPPING
+      TEST_MAPPING,
     );
 
     expect(source).toBeDefined();
@@ -60,11 +60,7 @@ describe('Source Code Retrieval', () => {
     const decompileService = getDecompileService();
 
     await expect(
-      decompileService.getClassSource(
-        TEST_VERSION,
-        'net.minecraft.NonExistentClass',
-        TEST_MAPPING
-      )
+      decompileService.getClassSource(TEST_VERSION, 'net.minecraft.NonExistentClass', TEST_MAPPING),
     ).rejects.toThrow();
   }, 30000);
 });

@@ -1,12 +1,18 @@
-import { downloadFile, fetchJson } from './http-client.js';
-import { MOJANG_VERSION_MANIFEST_URL, findVersion, getClientDownload, getServerDownload, getClientMappingsDownload } from '../parsers/version-manifest.js';
-import type { VersionManifest, VersionJson } from '../types/minecraft.js';
-import { getVersionJarPath, getServerJarPath, getMappingPath } from '../utils/paths.js';
-import { logger } from '../utils/logger.js';
-import { ensureDir } from '../utils/file-utils.js';
 import { dirname } from 'node:path';
+import {
+  MOJANG_VERSION_MANIFEST_URL,
+  findVersion,
+  getClientDownload,
+  getClientMappingsDownload,
+  getServerDownload,
+} from '../parsers/version-manifest.js';
+import type { VersionJson, VersionManifest } from '../types/minecraft.js';
+import { DownloadError, VersionNotFoundError } from '../utils/errors.js';
+import { ensureDir } from '../utils/file-utils.js';
 import { computeFileSha1 } from '../utils/hash.js';
-import { VersionNotFoundError, DownloadError } from '../utils/errors.js';
+import { logger } from '../utils/logger.js';
+import { getMojmapRawPath, getServerJarPath, getVersionJarPath } from '../utils/paths.js';
+import { downloadFile, fetchJson } from './http-client.js';
 
 export class MojangDownloader {
   private manifestCache: VersionManifest | null = null;
@@ -101,12 +107,15 @@ export class MojangDownloader {
 
   /**
    * Download official Mojang mappings (ProGuard format)
+   * Note: This downloads the raw ProGuard .txt file, not Tiny format
+   * Use MappingService.getMappings('mojmap') to get the converted Tiny file
    */
   async downloadMojangMappings(version: string): Promise<string> {
     const versionJson = await this.getVersionJson(version);
     const mappingsDownload = getClientMappingsDownload(versionJson);
 
-    const destination = getMappingPath(version, 'mojmap');
+    // Use the raw path since this is ProGuard format, not Tiny
+    const destination = getMojmapRawPath(version);
     ensureDir(dirname(destination));
 
     logger.info(`Downloading Mojang mappings for ${version}`);
@@ -121,7 +130,7 @@ export class MojangDownloader {
       );
     }
 
-    logger.info(`Mojang mappings verified: ${destination}`);
+    logger.info(`Mojang mappings (ProGuard format) verified: ${destination}`);
     return destination;
   }
 

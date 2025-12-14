@@ -1,8 +1,8 @@
 import { createWriteStream } from 'node:fs';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { logger } from '../utils/logger.js';
 import { DownloadError } from '../utils/errors.js';
+import { logger } from '../utils/logger.js';
 
 export interface DownloadOptions {
   maxRetries?: number;

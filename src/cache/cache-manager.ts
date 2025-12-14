@@ -1,9 +1,9 @@
 import { existsSync } from 'node:fs';
-import { getDatabase } from './database.js';
-import { paths, getDecompiledPath, getRemappedJarPath, getServerJarPath } from '../utils/paths.js';
+import type { MappingType } from '../types/minecraft.js';
 import { ensureDir } from '../utils/file-utils.js';
 import { logger } from '../utils/logger.js';
-import type { MappingType } from '../types/minecraft.js';
+import { getDecompiledPath, getRemappedJarPath, getServerJarPath, paths } from '../utils/paths.js';
+import { getDatabase } from './database.js';
 
 export class CacheManager {
   private db = getDatabase();

@@ -112,11 +112,7 @@ export class JavaProcessError extends MinecraftDevError {
 /**
  * Security error (path traversal, etc.)
  */
-export class SecurityError extends MinecraftDevError {
-  constructor(message: string) {
-    super(message);
-  }
-}
+export class SecurityError extends MinecraftDevError {}
 
 /**
  * Invalid input validation error
@@ -180,7 +176,9 @@ export class AccessWidenerParseError extends MinecraftDevError {
     public line?: number,
     message?: string,
   ) {
-    super(message || `Failed to parse access widener: ${filePath}${line ? ` at line ${line}` : ''}`);
+    super(
+      message || `Failed to parse access widener: ${filePath}${line ? ` at line ${line}` : ''}`,
+    );
   }
 }
 

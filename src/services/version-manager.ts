@@ -1,8 +1,8 @@
-import { getMojangDownloader } from '../downloaders/mojang-downloader.js';
 import { getCacheManager } from '../cache/cache-manager.js';
-import { logger } from '../utils/logger.js';
+import { getMojangDownloader } from '../downloaders/mojang-downloader.js';
 import { VersionNotFoundError } from '../utils/errors.js';
 import { computeFileSha1 } from '../utils/hash.js';
+import { logger } from '../utils/logger.js';
 
 /**
  * Manages Minecraft versions - downloading, caching, and metadata
@@ -11,8 +11,12 @@ export class VersionManager {
   private downloader = getMojangDownloader();
   private cache = getCacheManager();
 
+  // Lock to prevent concurrent downloads of the same version
+  private downloadLocks = new Map<string, Promise<string>>();
+
   /**
    * Get or download a Minecraft client JAR
+   * Uses locking to prevent concurrent downloads of the same version
    */
   async getVersionJar(
     version: string,
@@ -25,7 +29,32 @@ export class VersionManager {
       return cachedPath;
     }
 
-    // Download if not cached
+    // Check if download is already in progress for this version
+    const existingDownload = this.downloadLocks.get(`client-${version}`);
+    if (existingDownload) {
+      logger.info(`Waiting for existing download of ${version} to complete`);
+      return existingDownload;
+    }
+
+    // Start download with lock
+    const downloadPromise = this.downloadClientJarInternal(version, onProgress);
+    this.downloadLocks.set(`client-${version}`, downloadPromise);
+
+    try {
+      const jarPath = await downloadPromise;
+      return jarPath;
+    } finally {
+      this.downloadLocks.delete(`client-${version}`);
+    }
+  }
+
+  /**
+   * Internal method to download client JAR
+   */
+  private async downloadClientJarInternal(
+    version: string,
+    onProgress?: (downloaded: number, total: number) => void,
+  ): Promise<string> {
     logger.info(`Downloading client JAR for ${version}`);
     const jarPath = await this.downloader.downloadClientJar(version, onProgress);
 
@@ -38,6 +67,7 @@ export class VersionManager {
 
   /**
    * Get or download a Minecraft server JAR
+   * Uses locking to prevent concurrent downloads of the same version
    */
   async getServerJar(
     version: string,
@@ -50,10 +80,34 @@ export class VersionManager {
       return cachedPath;
     }
 
-    // Download if not cached
+    // Check if download is already in progress for this version
+    const existingDownload = this.downloadLocks.get(`server-${version}`);
+    if (existingDownload) {
+      logger.info(`Waiting for existing server JAR download of ${version} to complete`);
+      return existingDownload;
+    }
+
+    // Start download with lock
+    const downloadPromise = this.downloadServerJarInternal(version, onProgress);
+    this.downloadLocks.set(`server-${version}`, downloadPromise);
+
+    try {
+      const jarPath = await downloadPromise;
+      return jarPath;
+    } finally {
+      this.downloadLocks.delete(`server-${version}`);
+    }
+  }
+
+  /**
+   * Internal method to download server JAR
+   */
+  private async downloadServerJarInternal(
+    version: string,
+    onProgress?: (downloaded: number, total: number) => void,
+  ): Promise<string> {
     logger.info(`Downloading server JAR for ${version}`);
     const jarPath = await this.downloader.downloadServerJar(version, onProgress);
-
     return jarPath;
   }
 

@@ -7,11 +7,11 @@
  * - Parchment parameter names and javadocs
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { DocumentationEntry } from '../types/minecraft.js';
 import { logger } from '../utils/logger.js';
 import { getCacheDir } from '../utils/paths.js';
-import type { DocumentationEntry } from '../types/minecraft.js';
 
 /**
  * Documentation cache entry
@@ -113,21 +113,21 @@ const KNOWN_DOCS: Record<string, Partial<DocumentationEntry>> = {
  * Fabric Wiki page mappings
  */
 const FABRIC_WIKI_PAGES: Record<string, string> = {
-  'entity': 'https://fabricmc.net/wiki/tutorial:entity',
-  'block': 'https://fabricmc.net/wiki/tutorial:blocks',
-  'item': 'https://fabricmc.net/wiki/tutorial:items',
-  'world': 'https://fabricmc.net/wiki/tutorial:world',
-  'recipe': 'https://fabricmc.net/wiki/tutorial:recipes',
-  'mixin': 'https://fabricmc.net/wiki/tutorial:mixin_introduction',
-  'accesswidener': 'https://fabricmc.net/wiki/tutorial:accesswideners',
-  'registry': 'https://fabricmc.net/wiki/tutorial:registry',
-  'networking': 'https://fabricmc.net/wiki/tutorial:networking',
-  'commands': 'https://fabricmc.net/wiki/tutorial:commands',
-  'events': 'https://fabricmc.net/wiki/tutorial:events',
-  'rendering': 'https://fabricmc.net/wiki/tutorial:rendering',
-  'blockentity': 'https://fabricmc.net/wiki/tutorial:blockentity',
-  'screenhandler': 'https://fabricmc.net/wiki/tutorial:screenhandler',
-  'datagen': 'https://fabricmc.net/wiki/tutorial:datagen',
+  entity: 'https://fabricmc.net/wiki/tutorial:entity',
+  block: 'https://fabricmc.net/wiki/tutorial:blocks',
+  item: 'https://fabricmc.net/wiki/tutorial:items',
+  world: 'https://fabricmc.net/wiki/tutorial:world',
+  recipe: 'https://fabricmc.net/wiki/tutorial:recipes',
+  mixin: 'https://fabricmc.net/wiki/tutorial:mixin_introduction',
+  accesswidener: 'https://fabricmc.net/wiki/tutorial:accesswideners',
+  registry: 'https://fabricmc.net/wiki/tutorial:registry',
+  networking: 'https://fabricmc.net/wiki/tutorial:networking',
+  commands: 'https://fabricmc.net/wiki/tutorial:commands',
+  events: 'https://fabricmc.net/wiki/tutorial:events',
+  rendering: 'https://fabricmc.net/wiki/tutorial:rendering',
+  blockentity: 'https://fabricmc.net/wiki/tutorial:blockentity',
+  screenhandler: 'https://fabricmc.net/wiki/tutorial:screenhandler',
+  datagen: 'https://fabricmc.net/wiki/tutorial:datagen',
 };
 
 /**
@@ -250,7 +250,11 @@ export class DocumentationService {
     }
 
     // Screen/GUI classes
-    if (className.includes('.screen.') || simpleName.endsWith('Screen') || simpleName.endsWith('Handler')) {
+    if (
+      className.includes('.screen.') ||
+      simpleName.endsWith('Screen') ||
+      simpleName.endsWith('Handler')
+    ) {
       return {
         name: className,
         source: 'fabric_wiki',
@@ -272,7 +276,12 @@ export class DocumentationService {
     }
 
     // Network/packet classes
-    if (className.includes('.network.') || simpleName.endsWith('Packet') || simpleName.endsWith('S2CPacket') || simpleName.endsWith('C2SPacket')) {
+    if (
+      className.includes('.network.') ||
+      simpleName.endsWith('Packet') ||
+      simpleName.endsWith('S2CPacket') ||
+      simpleName.endsWith('C2SPacket')
+    ) {
       return {
         name: className,
         source: 'fabric_wiki',
@@ -292,7 +301,11 @@ export class DocumentationService {
     }
 
     // Render classes
-    if (className.includes('.render.') || simpleName.endsWith('Renderer') || simpleName.endsWith('Model')) {
+    if (
+      className.includes('.render.') ||
+      simpleName.endsWith('Renderer') ||
+      simpleName.endsWith('Model')
+    ) {
       return {
         name: className,
         source: 'fabric_wiki',
@@ -381,7 +394,7 @@ export class DocumentationService {
     if (main?.seeAlso) {
       for (const related of main.seeAlso) {
         const relatedDoc = await this.getDocumentation(related);
-        if (relatedDoc && !results.some(r => r.name === relatedDoc.name)) {
+        if (relatedDoc && !results.some((r) => r.name === relatedDoc.name)) {
           results.push(relatedDoc);
         }
       }
@@ -391,19 +404,19 @@ export class DocumentationService {
     const packagePath = className.split('.').slice(0, -1).join('.');
     if (packagePath.includes('entity')) {
       const entityDoc = await this.getTopicDocumentation('entity');
-      if (entityDoc && !results.some(r => r.url === entityDoc.url)) {
+      if (entityDoc && !results.some((r) => r.url === entityDoc.url)) {
         results.push(entityDoc);
       }
     }
     if (packagePath.includes('block')) {
       const blockDoc = await this.getTopicDocumentation('block');
-      if (blockDoc && !results.some(r => r.url === blockDoc.url)) {
+      if (blockDoc && !results.some((r) => r.url === blockDoc.url)) {
         results.push(blockDoc);
       }
     }
     if (packagePath.includes('item')) {
       const itemDoc = await this.getTopicDocumentation('item');
-      if (itemDoc && !results.some(r => r.url === itemDoc.url)) {
+      if (itemDoc && !results.some((r) => r.url === itemDoc.url)) {
         results.push(itemDoc);
       }
     }

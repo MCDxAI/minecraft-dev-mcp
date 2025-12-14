@@ -77,8 +77,8 @@ export class TinyV2Parser {
       throw new Error('Invalid Tiny v2 file: must start with "tiny"');
     }
 
-    const major = parseInt(parts[1], 10);
-    const minor = parseInt(parts[2], 10);
+    const major = Number.parseInt(parts[1], 10);
+    const minor = Number.parseInt(parts[2], 10);
     const namespaces = parts.slice(3);
 
     this.header = {

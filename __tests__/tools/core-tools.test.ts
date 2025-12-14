@@ -1,13 +1,13 @@
-import { describe, it, expect, beforeAll } from 'vitest';
-import { getDecompileService } from '../../src/services/decompile-service.js';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { verifyJavaVersion } from '../../src/java/java-process.js';
 import {
-  handleSearchMinecraftCode,
-  handleFindMapping,
   handleCompareVersions,
+  handleFindMapping,
+  handleSearchMinecraftCode,
   tools,
 } from '../../src/server/tools.js';
-import { TEST_VERSION, TEST_MAPPING } from '../test-constants.js';
+import { getDecompileService } from '../../src/services/decompile-service.js';
+import { TEST_MAPPING, TEST_VERSION } from '../test-constants.js';
 
 /**
  * Core MCP Tools Integration Tests
@@ -34,11 +34,7 @@ describe('MCP Tools Integration', () => {
 
     // This simulates the full MCP tool workflow
     const className = 'net.minecraft.item.Item';
-    const source = await decompileService.getClassSource(
-      TEST_VERSION,
-      className,
-      TEST_MAPPING
-    );
+    const source = await decompileService.getClassSource(TEST_VERSION, className, TEST_MAPPING);
 
     expect(source).toBeDefined();
     expect(source).toContain('package net.minecraft.item');
@@ -57,11 +53,7 @@ describe('MCP Tools Integration', () => {
     const startTime = Date.now();
 
     for (const className of classes) {
-      const source = await decompileService.getClassSource(
-        TEST_VERSION,
-        className,
-        TEST_MAPPING
-      );
+      const source = await decompileService.getClassSource(TEST_VERSION, className, TEST_MAPPING);
 
       expect(source).toBeDefined();
       expect(source.length).toBeGreaterThan(0);

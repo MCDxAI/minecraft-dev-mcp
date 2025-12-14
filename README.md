@@ -29,7 +29,7 @@
   </tr>
   <tr>
     <td><b>Automatic Decompilation</b></td>
-    <td>Download, remap, and decompile any Minecraft version (1.21.1+)</td>
+    <td>Download, remap, and decompile any Minecraft version (1.14+)</td>
   </tr>
   <tr>
     <td><b>Multiple Mapping Types</b></td>
@@ -453,6 +453,43 @@ All data is cached in a platform-specific directory:
 </div>
 
 <div align="center">
+  <h1>Version Support</h1>
+</div>
+
+<div align="center">
+
+**Supported Minecraft Versions:** 1.14+ (any version with available mappings)
+
+<table>
+  <tr>
+    <th>Version Range</th>
+    <th>Yarn Mappings</th>
+    <th>Mojmap</th>
+    <th>Notes</th>
+  </tr>
+  <tr>
+    <td><b>1.14 - 1.21.11</b></td>
+    <td>✅ Full Support</td>
+    <td>✅ Full Support</td>
+    <td>Obfuscated versions requiring remapping</td>
+  </tr>
+  <tr>
+    <td><b>26.1+</b></td>
+    <td>❌ Not Available</td>
+    <td>✅ Official Names</td>
+    <td>Deobfuscated by Mojang (no remapping needed)</td>
+  </tr>
+</table>
+
+**Important Notes:**
+- **1.21.11** is the last obfuscated Minecraft version
+- **Yarn mappings discontinued** after 1.21.11 (obfuscation removal makes them unnecessary)
+- **Future versions (26.1+)** ship with official deobfuscated code
+- Tested on: **1.19.4**, **1.20.1**, **1.21.10**, **1.21.11** (latest)
+
+</div>
+
+<div align="center">
   <h1>Configuration</h1>
 </div>
 
@@ -602,8 +639,9 @@ When you request another class from the same version:
   <tr>
     <td><b>Mappings Not Available</b><br><code>Yarn mappings not available for version X.X.X</code></td>
     <td>
-      Yarn mappings only support 1.21.1+<br>
-      Try using <code>"mapping": "mojmap"</code> instead
+      Yarn mappings support 1.14-1.21.11 (discontinued after 1.21.11)<br>
+      Mojmap supports 1.14.4+<br>
+      For versions 26.1+, use Mojmap (Minecraft is now deobfuscated by default)
     </td>
   </tr>
 </table>

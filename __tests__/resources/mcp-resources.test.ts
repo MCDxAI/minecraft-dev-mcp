@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { verifyJavaVersion } from '../../src/java/java-process.js';
-import { handleReadResource, resources, resourceTemplates } from '../../src/server/resources.js';
+import { handleReadResource, resourceTemplates, resources } from '../../src/server/resources.js';
 import { getSearchIndexService } from '../../src/services/search-index-service.js';
-import { TEST_VERSION, TEST_MAPPING } from '../test-constants.js';
+import { TEST_MAPPING, TEST_VERSION } from '../test-constants.js';
 
 /**
  * MCP Resources Tests
@@ -46,7 +46,7 @@ describe('MCP Resources', () => {
     expect(result.contents.length).toBe(1);
     expect(result.contents[0].mimeType).toBe('application/json');
 
-    const data = JSON.parse(result.contents[0].text!);
+    const data = JSON.parse(result.contents[0].text ?? '{}');
     expect(data.cached).toBeDefined();
     expect(data.available).toBeDefined();
     expect(data.total_available).toBeGreaterThan(0);
@@ -54,7 +54,7 @@ describe('MCP Resources', () => {
 
   it('should read source code resource', async () => {
     const result = await handleReadResource(
-      `minecraft://source/${TEST_VERSION}/${TEST_MAPPING}/net.minecraft.entity.Entity`
+      `minecraft://source/${TEST_VERSION}/${TEST_MAPPING}/net.minecraft.entity.Entity`,
     );
 
     expect(result).toBeDefined();
@@ -65,16 +65,14 @@ describe('MCP Resources', () => {
   }, 600000);
 
   it('should read registry resource', async () => {
-    const result = await handleReadResource(
-      `minecraft://registry/${TEST_VERSION}/block`
-    );
+    const result = await handleReadResource(`minecraft://registry/${TEST_VERSION}/block`);
 
     expect(result).toBeDefined();
     expect(result.contents).toBeDefined();
     expect(result.contents.length).toBe(1);
     expect(result.contents[0].mimeType).toBe('application/json');
 
-    const data = JSON.parse(result.contents[0].text!);
+    const data = JSON.parse(result.contents[0].text ?? '{}');
     expect(data).toBeDefined();
   }, 300000);
 });
@@ -116,7 +114,7 @@ describe('Phase 2 Resources', () => {
     expect(result.contents.length).toBe(1);
     expect(result.contents[0].mimeType).toBe('application/json');
 
-    const data = JSON.parse(result.contents[0].text!);
+    const data = JSON.parse(result.contents[0].text ?? '{}');
     expect(data.className).toBe('net.minecraft.entity.Entity');
     expect(data.documentation).toBeDefined();
   });
@@ -129,7 +127,7 @@ describe('Phase 2 Resources', () => {
     expect(result).toBeDefined();
     expect(result.contents.length).toBe(1);
 
-    const data = JSON.parse(result.contents[0].text!);
+    const data = JSON.parse(result.contents[0].text ?? '{}');
     expect(data.name).toBe('Mixin');
     expect(data.description).toBeDefined();
   });
@@ -142,7 +140,7 @@ describe('Phase 2 Resources', () => {
     expect(result).toBeDefined();
     expect(result.contents.length).toBe(1);
 
-    const data = JSON.parse(result.contents[0].text!);
+    const data = JSON.parse(result.contents[0].text ?? '{}');
     expect(data.name).toBe('Access Widener');
   });
 
@@ -154,7 +152,7 @@ describe('Phase 2 Resources', () => {
     expect(result).toBeDefined();
     expect(result.contents.length).toBe(1);
 
-    const data = JSON.parse(result.contents[0].text!);
+    const data = JSON.parse(result.contents[0].text ?? '{}');
     expect(data.indexedVersions).toBeDefined();
     expect(Array.isArray(data.indexedVersions)).toBe(true);
   });
@@ -170,7 +168,7 @@ describe('Phase 2 Resources', () => {
       expect(result).toBeDefined();
       expect(result.contents.length).toBe(1);
 
-      const data = JSON.parse(result.contents[0].text!);
+      const data = JSON.parse(result.contents[0].text ?? '{}');
       expect(data.isIndexed).toBe(true);
       expect(data.fileCount).toBeGreaterThan(0);
     }

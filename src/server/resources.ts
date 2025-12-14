@@ -1,12 +1,12 @@
+import { existsSync, readFileSync } from 'node:fs';
 import { getDecompileService } from '../services/decompile-service.js';
-import { getMappingService } from '../services/mapping-service.js';
-import { getVersionManager } from '../services/version-manager.js';
-import { getRegistryService } from '../services/registry-service.js';
 import { getDocumentationService } from '../services/documentation-service.js';
+import { getMappingService } from '../services/mapping-service.js';
+import { getRegistryService } from '../services/registry-service.js';
 import { getSearchIndexService } from '../services/search-index-service.js';
-import { logger } from '../utils/logger.js';
-import { readFileSync, existsSync } from 'node:fs';
+import { getVersionManager } from '../services/version-manager.js';
 import type { MappingType } from '../types/minecraft.js';
+import { logger } from '../utils/logger.js';
 
 /**
  * MCP Resource definitions
@@ -101,7 +101,15 @@ export const resources = [
  * Parse a minecraft:// URI
  */
 function parseMinecraftUri(uri: string): {
-  type: 'source' | 'mappings' | 'registry' | 'versions' | 'docs' | 'docs-topic' | 'index' | 'index-list';
+  type:
+    | 'source'
+    | 'mappings'
+    | 'registry'
+    | 'versions'
+    | 'docs'
+    | 'docs-topic'
+    | 'index'
+    | 'index-list';
   version?: string;
   mapping?: string;
   className?: string;
@@ -211,18 +219,23 @@ export async function handleReadResource(uri: string): Promise<{
     case 'versions':
       return handleVersionsResource(uri);
     case 'source':
-      return handleSourceResource(uri, parsed.version!, parsed.mapping!, parsed.className!);
+      return handleSourceResource(
+        uri,
+        parsed.version ?? '',
+        parsed.mapping ?? 'yarn',
+        parsed.className ?? '',
+      );
     case 'mappings':
-      return handleMappingsResource(uri, parsed.version!, parsed.mapping!);
+      return handleMappingsResource(uri, parsed.version ?? '', parsed.mapping ?? 'yarn');
     case 'registry':
-      return handleRegistryResource(uri, parsed.version!, parsed.registryType);
+      return handleRegistryResource(uri, parsed.version ?? '', parsed.registryType);
     // Phase 2 resources
     case 'docs':
-      return handleDocsResource(uri, parsed.className!);
+      return handleDocsResource(uri, parsed.className ?? '');
     case 'docs-topic':
-      return handleDocsTopicResource(uri, parsed.topic!);
+      return handleDocsTopicResource(uri, parsed.topic ?? '');
     case 'index':
-      return handleIndexResource(uri, parsed.version!, parsed.mapping!);
+      return handleIndexResource(uri, parsed.version ?? '', parsed.mapping ?? 'yarn');
     case 'index-list':
       return handleIndexListResource(uri);
     default:
@@ -296,7 +309,9 @@ async function handleMappingsResource(uri: string, version: string, mapping: str
 
   // Validate mapping type
   if (mapping !== 'yarn' && mapping !== 'mojmap' && mapping !== 'intermediary') {
-    throw new Error(`Invalid mapping type: ${mapping}. Must be 'yarn', 'mojmap', or 'intermediary'`);
+    throw new Error(
+      `Invalid mapping type: ${mapping}. Must be 'yarn', 'mojmap', or 'intermediary'`,
+    );
   }
 
   const mappingPath = await mappingService.getMappings(version, mapping as MappingType);
@@ -452,10 +467,14 @@ async function handleIndexListResource(uri: string) {
       {
         uri,
         mimeType: 'application/json',
-        text: JSON.stringify({
-          indexedVersions: indexed,
-          count: indexed.length,
-        }, null, 2),
+        text: JSON.stringify(
+          {
+            indexedVersions: indexed,
+            count: indexed.length,
+          },
+          null,
+          2,
+        ),
       },
     ],
   };

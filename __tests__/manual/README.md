@@ -1,11 +1,12 @@
 # Manual Version-Specific Tests
 
-This directory contains comprehensive integration tests for specific Minecraft versions. These tests verify that the MCP server works correctly with older/legacy versions.
+This directory contains comprehensive integration tests for specific Minecraft versions. These tests verify that the MCP server works correctly with older/legacy versions and different mapping types.
 
 ## Why Manual Tests?
 
 - **CI Performance**: Main test suite only tests latest version (currently 1.21.11) to keep CI builds fast
 - **Legacy Support**: Verifies compatibility with older Minecraft versions (1.19.x, 1.20.x, etc.)
+- **Mapping Coverage**: Tests both Yarn and Mojmap mapping types
 - **Version-Specific**: Each directory has its own test constants and fixtures
 - **Comprehensive**: Full pipeline tests (JAR download → mapping → remap → decompile → registry)
 
@@ -13,29 +14,49 @@ This directory contains comprehensive integration tests for specific Minecraft v
 
 ```
 manual/
-├── v1.21.10/          # Last obfuscated stable before 1.21.11
+├── v1.21.10/          # Yarn tests - Last obfuscated stable before 1.21.11
 │   ├── test-constants.ts
 │   └── full-suite.test.ts
-├── v1.20.1/           # Legacy version (1.20.x era)
+├── v1.20.1/           # Yarn tests - Legacy version (1.20.x era)
 │   ├── test-constants.ts
 │   └── full-suite.test.ts
-└── v1.19.4/           # Older legacy version (1.19.x era)
+├── v1.19.4/           # Yarn tests - Older legacy version (1.19.x era)
+│   ├── test-constants.ts
+│   └── full-suite.test.ts
+└── mojmap/            # Mojmap-specific tests (all versions)
     ├── test-constants.ts
-    └── full-suite.test.ts
+    └── mojmap-remapping.test.ts
 ```
 
 ## Running Manual Tests
 
-### Run All Manual Tests
+### Yarn Tests (Default)
+
+#### Run All Yarn Manual Tests
 ```bash
 npm run test:manual
 ```
 
-### Run Specific Version
+#### Run Specific Version (Yarn)
 ```bash
 npm run test:manual:1.21.10
 npm run test:manual:1.20.1
 npm run test:manual:1.19.4
+```
+
+### Mojmap Tests
+
+#### Run Mojmap Tests (Default: 1.21.11)
+```bash
+npm run test:manual:mojmap
+```
+
+#### Run Specific Version (Mojmap)
+```bash
+npm run test:manual:mojmap:1.21.11
+npm run test:manual:mojmap:1.21.10
+npm run test:manual:mojmap:1.20.1
+npm run test:manual:mojmap:1.19.4
 ```
 
 ### Run Everything (CI + Manual)

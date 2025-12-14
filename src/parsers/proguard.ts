@@ -85,7 +85,10 @@ export class ProGuardParser {
     };
   }
 
-  private parseMemberLine(line: string): { type: 'method' | 'field'; data: ProGuardMethod | ProGuardField } {
+  private parseMemberLine(line: string): {
+    type: 'method' | 'field';
+    data: ProGuardMethod | ProGuardField;
+  } {
     const trimmed = line.trim();
 
     // Method: "returnType methodName(params) -> deobfuscatedName"

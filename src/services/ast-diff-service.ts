@@ -8,18 +8,18 @@
 
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { logger } from '../utils/logger.js';
-import { AstParseError } from '../utils/errors.js';
 import { getCacheManager } from '../cache/cache-manager.js';
-import { getDecompiledPath } from '../utils/paths.js';
 import type {
-  ClassSignature,
-  MethodSignature,
-  FieldSignature,
-  DetailedVersionDiff,
   ClassModification,
+  ClassSignature,
+  DetailedVersionDiff,
+  FieldSignature,
   MappingType,
+  MethodSignature,
 } from '../types/minecraft.js';
+import { AstParseError } from '../utils/errors.js';
+import { logger } from '../utils/logger.js';
+import { getDecompiledPath } from '../utils/paths.js';
 
 /**
  * AST Diff Service for detailed version comparison
@@ -52,7 +52,7 @@ export class AstDiffService {
     for (const line of lines) {
       // Match class/interface/enum declaration
       const classMatch = line.match(
-        /^(?:public\s+)?(?:(abstract)\s+)?(?:final\s+)?(class|interface|enum)\s+(\w+)(?:<[^>]+>)?(?:\s+extends\s+([\w.<>,\s]+))?(?:\s+implements\s+([\w.<>,\s]+))?/
+        /^(?:public\s+)?(?:(abstract)\s+)?(?:final\s+)?(class|interface|enum)\s+(\w+)(?:<[^>]+>)?(?:\s+extends\s+([\w.<>,\s]+))?(?:\s+implements\s+([\w.<>,\s]+))?/,
       );
 
       if (classMatch) {
@@ -67,7 +67,7 @@ export class AstDiffService {
         }
 
         if (classMatch[5]) {
-          const implementsList = classMatch[5].split(',').map(i => i.trim().split('<')[0].trim());
+          const implementsList = classMatch[5].split(',').map((i) => i.trim().split('<')[0].trim());
           interfaces.push(...implementsList);
         }
         break;
@@ -114,10 +114,10 @@ export class AstDiffService {
 
     // Regex to match method declarations (not constructors)
     // Handles generics, arrays, varargs
-    const methodRegex = /^\s*((?:public|private|protected)\s+)?(?:(static)\s+)?(?:(final)\s+)?(?:(synchronized)\s+)?(?:(native)\s+)?(?:(abstract)\s+)?(?:(<[^>]+>)\s+)?([\w<>,\[\]?]+)\s+(\w+)\s*\(([^)]*)\)(?:\s+throws\s+([\w,\s]+))?/gm;
+    const methodRegex =
+      /^\s*((?:public|private|protected)\s+)?(?:(static)\s+)?(?:(final)\s+)?(?:(synchronized)\s+)?(?:(native)\s+)?(?:(abstract)\s+)?(?:(<[^>]+>)\s+)?([\w<>,\[\]?]+)\s+(\w+)\s*\(([^)]*)\)(?:\s+throws\s+([\w,\s]+))?/gm;
 
-    let match;
-    while ((match = methodRegex.exec(source)) !== null) {
+    for (const match of source.matchAll(methodRegex)) {
       const modifiers: string[] = [];
       if (match[1]) modifiers.push(match[1].trim());
       if (match[2]) modifiers.push('static');
@@ -136,9 +136,7 @@ export class AstDiffService {
       const parameters = this.parseParameters(paramsStr);
 
       // Parse throws
-      const throwsList = throwsStr
-        ? throwsStr.split(',').map(t => t.trim())
-        : [];
+      const throwsList = throwsStr ? throwsStr.split(',').map((t) => t.trim()) : [];
 
       methods.push({
         name: methodName,
@@ -173,7 +171,10 @@ export class AstDiffService {
           const parts = param.split(/\s+/);
           // Handle annotations and modifiers
           let typeIdx = parts.length - 2;
-          while (typeIdx >= 0 && (parts[typeIdx].startsWith('@') || ['final'].includes(parts[typeIdx]))) {
+          while (
+            typeIdx >= 0 &&
+            (parts[typeIdx].startsWith('@') || ['final'].includes(parts[typeIdx]))
+          ) {
             typeIdx--;
           }
           if (typeIdx >= 0) {
@@ -191,7 +192,10 @@ export class AstDiffService {
     if (param) {
       const parts = param.split(/\s+/);
       let typeIdx = parts.length - 2;
-      while (typeIdx >= 0 && (parts[typeIdx].startsWith('@') || ['final'].includes(parts[typeIdx]))) {
+      while (
+        typeIdx >= 0 &&
+        (parts[typeIdx].startsWith('@') || ['final'].includes(parts[typeIdx]))
+      ) {
         typeIdx--;
       }
       if (typeIdx >= 0) {
@@ -209,10 +213,10 @@ export class AstDiffService {
     const fields: FieldSignature[] = [];
 
     // Regex to match field declarations
-    const fieldRegex = /^\s*((?:public|private|protected)\s+)?(?:(static)\s+)?(?:(final)\s+)?(?:(volatile)\s+)?(?:(transient)\s+)?([\w<>,\[\]?]+)\s+(\w+)\s*(?:=\s*([^;]+))?;/gm;
+    const fieldRegex =
+      /^\s*((?:public|private|protected)\s+)?(?:(static)\s+)?(?:(final)\s+)?(?:(volatile)\s+)?(?:(transient)\s+)?([\w<>,\[\]?]+)\s+(\w+)\s*(?:=\s*([^;]+))?;/gm;
 
-    let match;
-    while ((match = fieldRegex.exec(source)) !== null) {
+    for (const match of source.matchAll(fieldRegex)) {
       const modifiers: string[] = [];
       if (match[1]) modifiers.push(match[1].trim());
       if (match[2]) modifiers.push('static');
@@ -256,7 +260,9 @@ export class AstDiffService {
       if (inOuterClass && depth >= 2) {
         // Check if we're at a class declaration
         const remaining = source.substring(i);
-        const classMatch = remaining.match(/^(?:public|private|protected)?\s*(?:static\s+)?(?:abstract\s+)?(?:final\s+)?(?:class|interface|enum)\s+(\w+)/);
+        const classMatch = remaining.match(
+          /^(?:public|private|protected)?\s*(?:static\s+)?(?:abstract\s+)?(?:final\s+)?(?:class|interface|enum)\s+(\w+)/,
+        );
         if (classMatch && classMatch[1] !== outerClassName) {
           innerClasses.push(`${outerClassName}$${classMatch[1]}`);
         }
@@ -346,7 +352,7 @@ export class AstDiffService {
 
     // Create filter based on packages
     const filter = packages
-      ? (className: string) => packages.some(pkg => className.startsWith(pkg))
+      ? (className: string) => packages.some((pkg) => className.startsWith(pkg))
       : undefined;
 
     // Get signatures for both versions
@@ -361,18 +367,18 @@ export class AstDiffService {
     const toSet = new Set(toClasses);
 
     // Find added, removed, and common classes
-    const addedClassNames = toClasses.filter(c => !fromSet.has(c));
-    const removedClassNames = fromClasses.filter(c => !toSet.has(c));
-    const commonClassNames = fromClasses.filter(c => toSet.has(c));
+    const addedClassNames = toClasses.filter((c) => !fromSet.has(c));
+    const removedClassNames = fromClasses.filter((c) => !toSet.has(c));
+    const commonClassNames = fromClasses.filter((c) => toSet.has(c));
 
     // Get full signatures for added/removed
     const addedClasses = addedClassNames
-      .map(name => toSignatures.get(name)!)
-      .filter(Boolean);
+      .map((name) => toSignatures.get(name))
+      .filter((c): c is ClassSignature => c !== undefined);
 
     const removedClasses = removedClassNames
-      .map(name => fromSignatures.get(name)!)
-      .filter(Boolean);
+      .map((name) => fromSignatures.get(name))
+      .filter((c): c is ClassSignature => c !== undefined);
 
     // Compare common classes for modifications
     const modifiedClasses: ClassModification[] = [];
@@ -383,8 +389,9 @@ export class AstDiffService {
     let fieldsRemoved = 0;
 
     for (const className of commonClassNames) {
-      const fromClass = fromSignatures.get(className)!;
-      const toClass = toSignatures.get(className)!;
+      const fromClass = fromSignatures.get(className);
+      const toClass = toSignatures.get(className);
+      if (!fromClass || !toClass) continue;
 
       const modification = this.compareClasses(fromClass, toClass);
 
@@ -440,8 +447,8 @@ export class AstDiffService {
     const removedFields: FieldSignature[] = [];
 
     // Compare methods
-    const fromMethodKeys = new Map(from.methods.map(m => [this.methodKey(m), m]));
-    const toMethodKeys = new Map(to.methods.map(m => [this.methodKey(m), m]));
+    const fromMethodKeys = new Map(from.methods.map((m) => [this.methodKey(m), m]));
+    const toMethodKeys = new Map(to.methods.map((m) => [this.methodKey(m), m]));
 
     for (const [key, method] of toMethodKeys) {
       const fromMethod = fromMethodKeys.get(key);
@@ -469,7 +476,7 @@ export class AstDiffService {
     for (const [key, method] of fromMethodKeys) {
       if (!toMethodKeys.has(key)) {
         // Only add if not already tracked as renamed
-        const wasRenamed = modifiedMethods.some(m => m.old.name === method.name);
+        const wasRenamed = modifiedMethods.some((m) => m.old.name === method.name);
         if (!wasRenamed) {
           removedMethods.push(method);
         }
@@ -477,8 +484,8 @@ export class AstDiffService {
     }
 
     // Compare fields
-    const fromFieldNames = new Map(from.fields.map(f => [f.name, f]));
-    const toFieldNames = new Map(to.fields.map(f => [f.name, f]));
+    const fromFieldNames = new Map(from.fields.map((f) => [f.name, f]));
+    const toFieldNames = new Map(to.fields.map((f) => [f.name, f]));
 
     for (const [name, field] of toFieldNames) {
       if (!fromFieldNames.has(name)) {
@@ -502,8 +509,8 @@ export class AstDiffService {
     let interfaceChanges: ClassModification['interfaceChanges'];
     const fromInterfaces = new Set(from.interfaces);
     const toInterfaces = new Set(to.interfaces);
-    const addedInterfaces = to.interfaces.filter(i => !fromInterfaces.has(i));
-    const removedInterfaces = from.interfaces.filter(i => !toInterfaces.has(i));
+    const addedInterfaces = to.interfaces.filter((i) => !fromInterfaces.has(i));
+    const removedInterfaces = from.interfaces.filter((i) => !toInterfaces.has(i));
 
     if (addedInterfaces.length > 0 || removedInterfaces.length > 0) {
       interfaceChanges = { added: addedInterfaces, removed: removedInterfaces };
@@ -544,7 +551,10 @@ export class AstDiffService {
   /**
    * Find a method with similar signature (for rename detection)
    */
-  private findSimilarMethod(target: MethodSignature, candidates: MethodSignature[]): MethodSignature | null {
+  private findSimilarMethod(
+    target: MethodSignature,
+    candidates: MethodSignature[],
+  ): MethodSignature | null {
     for (const candidate of candidates) {
       // Same parameters and return type, different name
       if (
@@ -606,7 +616,7 @@ export class AstDiffService {
   }> {
     const diff = await this.compareVersionsDetailed(fromVersion, toVersion, mapping, { packages });
 
-    const removedClasses = diff.removedClasses.map(c => c.name);
+    const removedClasses = diff.removedClasses.map((c) => c.name);
 
     const removedMethods: Array<{ className: string; method: string }> = [];
     const signatureChanges: Array<{ className: string; method: string; change: string }> = [];
@@ -622,7 +632,7 @@ export class AstDiffService {
       for (const change of mod.modifiedMethods) {
         // Only report return type changes and parameter changes as breaking
         const breakingChanges = change.changes.filter(
-          c => c.startsWith('Return type changed') || c.startsWith('Parameter')
+          (c) => c.startsWith('Return type changed') || c.startsWith('Parameter'),
         );
         if (breakingChanges.length > 0) {
           signatureChanges.push({

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { handleAnalyzeModJar } from '../../src/server/tools.js';
 import { METEOR_JAR_PATH } from '../test-constants.js';
 

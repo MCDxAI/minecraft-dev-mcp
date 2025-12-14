@@ -1,8 +1,8 @@
-import { describe, it, expect } from 'vitest';
-import { getAstDiffService } from '../../src/services/ast-diff-service.js';
+import { describe, expect, it } from 'vitest';
 import { getCacheManager } from '../../src/cache/cache-manager.js';
 import { handleCompareVersionsDetailed } from '../../src/server/tools.js';
-import { TEST_VERSION, TEST_MAPPING } from '../test-constants.js';
+import { getAstDiffService } from '../../src/services/ast-diff-service.js';
+import { TEST_MAPPING, TEST_VERSION } from '../test-constants.js';
 
 /**
  * AST Diff Service Tests

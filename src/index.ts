@@ -4,20 +4,16 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
   CallToolRequestSchema,
-  ListToolsRequestSchema,
-  ListResourcesRequestSchema,
   ListResourceTemplatesRequestSchema,
+  ListResourcesRequestSchema,
+  ListToolsRequestSchema,
   ReadResourceRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { logger } from './utils/logger.js';
-import { verifyJavaVersion } from './java/java-process.js';
-import { tools, handleToolCall } from './server/tools.js';
-import {
-  resources,
-  resourceTemplates,
-  handleReadResource,
-} from './server/resources.js';
 import { closeDatabase } from './cache/database.js';
+import { verifyJavaVersion } from './java/java-process.js';
+import { handleReadResource, resourceTemplates, resources } from './server/resources.js';
+import { handleToolCall, tools } from './server/tools.js';
+import { logger } from './utils/logger.js';
 
 /**
  * Minecraft Dev MCP Server

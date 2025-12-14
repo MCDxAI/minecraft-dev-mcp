@@ -1,8 +1,8 @@
-import { executeJavaProcess } from './java-process.js';
 import { getJavaResourceDownloader } from '../downloaders/java-resources.js';
-import { logger } from '../utils/logger.js';
-import { ensureDir } from '../utils/file-utils.js';
 import { DecompilationError } from '../utils/errors.js';
+import { ensureDir } from '../utils/file-utils.js';
+import { logger } from '../utils/logger.js';
+import { executeJavaProcess } from './java-process.js';
 
 export interface VineflowerOptions {
   decompileGenerics?: boolean; // -dgs=1
@@ -119,17 +119,13 @@ export class VineflowerWrapper {
   /**
    * Decompile a single class from a JAR
    */
-  async decompileClass(
-    inputJar: string,
-    className: string,
-    outputDir: string,
-  ): Promise<string> {
+  async decompileClass(inputJar: string, className: string, outputDir: string): Promise<string> {
     // Vineflower doesn't support single-class decompilation directly
     // We need to decompile the whole JAR (but it's cached)
     await this.decompile(inputJar, outputDir);
 
     // Return path to decompiled class
-    const classPath = className.replace(/\./g, '/') + '.java';
+    const classPath = `${className.replace(/\./g, '/')}.java`;
     return `${outputDir}/${classPath}`;
   }
 }

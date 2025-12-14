@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { getCacheManager } from '../../src/cache/cache-manager.js';
-import { TEST_VERSION, TEST_MAPPING } from '../test-constants.js';
+import { TEST_MAPPING, TEST_VERSION } from '../test-constants.js';
 
 /**
  * Cache Functionality Tests

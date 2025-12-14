@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
-import { getAccessWidenerService } from '../../src/services/access-widener-service.js';
+import { describe, expect, it } from 'vitest';
 import { handleValidateAccessWidener } from '../../src/server/tools.js';
-import { TEST_VERSION, TEST_MAPPING } from '../test-constants.js';
+import { getAccessWidenerService } from '../../src/services/access-widener-service.js';
+import { TEST_MAPPING, TEST_VERSION } from '../test-constants.js';
 
 /**
  * Access Widener Service Tests
@@ -32,15 +32,15 @@ mutable field net/minecraft/entity/Entity age I
     expect(aw.version).toBe(2);
     expect(aw.entries.length).toBe(4);
 
-    const classEntry = aw.entries.find(e => e.targetType === 'class');
+    const classEntry = aw.entries.find((e) => e.targetType === 'class');
     expect(classEntry).toBeDefined();
-    expect(classEntry!.className).toBe('net.minecraft.entity.Entity');
+    expect(classEntry?.className).toBe('net.minecraft.entity.Entity');
 
-    const methodEntry = aw.entries.find(e => e.targetType === 'method');
+    const methodEntry = aw.entries.find((e) => e.targetType === 'method');
     expect(methodEntry).toBeDefined();
-    expect(methodEntry!.memberName).toBe('tick');
+    expect(methodEntry?.memberName).toBe('tick');
 
-    const mutableEntry = aw.entries.find(e => e.accessType === 'mutable');
+    const mutableEntry = aw.entries.find((e) => e.accessType === 'mutable');
     expect(mutableEntry).toBeDefined();
   });
 

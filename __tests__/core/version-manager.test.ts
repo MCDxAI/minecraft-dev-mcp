@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { getVersionManager } from '../../src/services/version-manager.js';
+import { describe, expect, it } from 'vitest';
 import { MojangDownloader } from '../../src/downloaders/mojang-downloader.js';
+import { getVersionManager } from '../../src/services/version-manager.js';
 import { TEST_VERSION } from '../test-constants.js';
 
 /**

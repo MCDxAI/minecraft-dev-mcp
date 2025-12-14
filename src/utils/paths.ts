@@ -77,6 +77,29 @@ export function getMappingPath(version: string, mappingType: string): string {
 }
 
 /**
+ * Get raw Mojang ProGuard mapping file path
+ * This is the unprocessed .txt file from Mojang
+ */
+export function getMojmapRawPath(version: string): string {
+  return join(paths.mappings(), `mojmap-raw-${version}.txt`);
+}
+
+/**
+ * Get converted Mojmap mapping file path (Tiny v2 format)
+ * This is the processed file ready for tiny-remapper
+ */
+export function getMojmapTinyPath(version: string): string {
+  return join(paths.mappings(), `mojmap-tiny-${version}.tiny`);
+}
+
+/**
+ * Get the directory for mojang2tiny conversion output
+ */
+export function getMojmapConversionDir(version: string): string {
+  return join(paths.mappings(), 'mojmap-conversion', version);
+}
+
+/**
  * Get registry data path
  */
 export function getRegistryPath(version: string): string {
@@ -88,7 +111,7 @@ export function getRegistryPath(version: string): string {
  * e.g., "net.minecraft.world.entity.Entity" -> "net/minecraft/world/entity/Entity.java"
  */
 export function classNameToPath(className: string): string {
-  return className.replace(/\./g, '/') + '.java';
+  return `${className.replace(/\./g, '/')}.java`;
 }
 
 /**

@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
-import { getMappingService } from '../../src/services/mapping-service.js';
-import { TEST_VERSION, TEST_MAPPING } from '../test-constants.js';
 import { existsSync } from 'node:fs';
+import { describe, expect, it } from 'vitest';
+import { getMappingService } from '../../src/services/mapping-service.js';
+import { TEST_MAPPING, TEST_VERSION } from '../test-constants.js';
 
 /**
  * Mapping Service Tests

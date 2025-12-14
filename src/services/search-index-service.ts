@@ -5,17 +5,14 @@
  * using SQLite FTS5 (Full-Text Search version 5).
  */
 
-import Database from 'better-sqlite3';
-import { readFileSync, readdirSync, existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { logger } from '../utils/logger.js';
-import { SearchIndexError } from '../utils/errors.js';
-import { getCacheDir, getDecompiledPath } from '../utils/paths.js';
+import Database from 'better-sqlite3';
 import { getCacheManager } from '../cache/cache-manager.js';
-import type {
-  RankedSearchResult,
-  MappingType,
-} from '../types/minecraft.js';
+import type { MappingType, RankedSearchResult } from '../types/minecraft.js';
+import { SearchIndexError } from '../utils/errors.js';
+import { logger } from '../utils/logger.js';
+import { getCacheDir, getDecompiledPath } from '../utils/paths.js';
 
 /**
  * Search Index Service using SQLite FTS5
@@ -55,15 +52,18 @@ export class SearchIndexService {
    * Initialize database tables
    */
   private initializeTables(): void {
-    const db = this.db!;
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+    const db = this.db;
 
     // Check if the old contentless FTS5 table exists and drop it
     // (v1 used content='' which creates a contentless table that can't be queried)
-    const tableInfo = db.prepare(
-      "SELECT sql FROM sqlite_master WHERE type='table' AND name='search_index'"
-    ).get() as { sql: string } | undefined;
+    const tableInfo = db
+      .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='search_index'")
+      .get() as { sql: string } | undefined;
 
-    if (tableInfo && tableInfo.sql.includes("content=''")) {
+    if (tableInfo?.sql.includes("content=''")) {
       logger.info('Dropping old contentless FTS5 table for upgrade');
       db.exec('DROP TABLE IF EXISTS search_index');
       db.exec('DELETE FROM index_metadata'); // Clear metadata since index is gone
@@ -101,9 +101,9 @@ export class SearchIndexService {
    */
   isIndexed(version: string, mapping: MappingType): boolean {
     const db = this.getDb();
-    const result = db.prepare(
-      'SELECT 1 FROM index_metadata WHERE version = ? AND mapping = ?'
-    ).get(version, mapping);
+    const result = db
+      .prepare('SELECT 1 FROM index_metadata WHERE version = ? AND mapping = ?')
+      .get(version, mapping);
     return !!result;
   }
 
@@ -123,7 +123,7 @@ export class SearchIndexService {
       throw new SearchIndexError(
         version,
         mapping,
-        `Source not decompiled. Run decompile_minecraft_version first.`,
+        'Source not decompiled. Run decompile_minecraft_version first.',
       );
     }
 
@@ -160,27 +160,31 @@ export class SearchIndexService {
     walkDir(decompiledPath);
 
     // Index files in a transaction for better performance
-    const insertMany = db.transaction((entries: Array<{
-      className: string;
-      filePath: string;
-      entryType: string;
-      symbol: string;
-      context: string;
-      line: number;
-    }>) => {
-      for (const entry of entries) {
-        insertStmt.run(
-          version,
-          mapping,
-          entry.className,
-          entry.filePath,
-          entry.entryType,
-          entry.symbol,
-          entry.context,
-          entry.line,
-        );
-      }
-    });
+    const insertMany = db.transaction(
+      (
+        entries: Array<{
+          className: string;
+          filePath: string;
+          entryType: string;
+          symbol: string;
+          context: string;
+          line: number;
+        }>,
+      ) => {
+        for (const entry of entries) {
+          insertStmt.run(
+            version,
+            mapping,
+            entry.className,
+            entry.filePath,
+            entry.entryType,
+            entry.symbol,
+            entry.context,
+            entry.line,
+          );
+        }
+      },
+    );
 
     let processedCount = 0;
 
@@ -241,7 +245,7 @@ export class SearchIndexService {
 
     // Update metadata
     db.prepare(
-      'INSERT OR REPLACE INTO index_metadata (version, mapping, indexed_at, file_count) VALUES (?, ?, ?, ?)'
+      'INSERT OR REPLACE INTO index_metadata (version, mapping, indexed_at, file_count) VALUES (?, ?, ?, ?)',
     ).run(version, mapping, Date.now(), files.length);
 
     const duration = Date.now() - startTime;
@@ -256,7 +260,11 @@ export class SearchIndexService {
   private extractClassContext(source: string): string {
     const lines = source.split('\n');
     for (const line of lines) {
-      if (line.match(/(?:public|private|protected)?\s*(?:abstract\s+)?(?:final\s+)?(?:class|interface|enum)\s+\w+/)) {
+      if (
+        line.match(
+          /(?:public|private|protected)?\s*(?:abstract\s+)?(?:final\s+)?(?:class|interface|enum)\s+\w+/,
+        )
+      ) {
         return line.trim().substring(0, 300);
       }
     }
@@ -285,7 +293,9 @@ export class SearchIndexService {
       const line = lines[i];
 
       // Match method declarations
-      const methodMatch = line.match(/(?:public|private|protected)\s+(?:static\s+)?(?:final\s+)?(?:synchronized\s+)?(?:native\s+)?(?:abstract\s+)?(?:<[^>]+>\s+)?[\w<>,\[\]]+\s+(\w+)\s*\(/);
+      const methodMatch = line.match(
+        /(?:public|private|protected)\s+(?:static\s+)?(?:final\s+)?(?:synchronized\s+)?(?:native\s+)?(?:abstract\s+)?(?:<[^>]+>\s+)?[\w<>,\[\]]+\s+(\w+)\s*\(/,
+      );
       if (methodMatch) {
         members.push({
           type: 'method',
@@ -297,7 +307,9 @@ export class SearchIndexService {
       }
 
       // Match field declarations
-      const fieldMatch = line.match(/(?:public|private|protected)\s+(?:static\s+)?(?:final\s+)?(?:volatile\s+)?[\w<>,\[\]]+\s+(\w+)\s*[;=]/);
+      const fieldMatch = line.match(
+        /(?:public|private|protected)\s+(?:static\s+)?(?:final\s+)?(?:volatile\s+)?[\w<>,\[\]]+\s+(\w+)\s*[;=]/,
+      );
       if (fieldMatch && !line.includes('(')) {
         members.push({
           type: 'field',
@@ -317,7 +329,10 @@ export class SearchIndexService {
   clearIndex(version: string, mapping: MappingType): void {
     const db = this.getDb();
     db.prepare('DELETE FROM search_index WHERE version = ? AND mapping = ?').run(version, mapping);
-    db.prepare('DELETE FROM index_metadata WHERE version = ? AND mapping = ?').run(version, mapping);
+    db.prepare('DELETE FROM index_metadata WHERE version = ? AND mapping = ?').run(
+      version,
+      mapping,
+    );
   }
 
   /**
@@ -343,7 +358,7 @@ export class SearchIndexService {
       throw new SearchIndexError(
         version,
         mapping,
-        `Version not indexed. Run index_minecraft_version first.`,
+        'Version not indexed. Run index_minecraft_version first.',
       );
     }
 
@@ -360,7 +375,7 @@ export class SearchIndexService {
     // Build type filter
     let typeFilter = '';
     if (types && types.length > 0) {
-      const typeList = types.map(t => `'${t}'`).join(',');
+      const typeList = types.map((t) => `'${t}'`).join(',');
       typeFilter = `AND entry_type IN (${typeList})`;
     }
 
@@ -404,7 +419,7 @@ export class SearchIndexService {
         highlighted: string;
       }>;
 
-      return results.map(row => ({
+      return results.map((row) => ({
         className: row.class_name,
         filePath: row.file_path,
         line: row.line,
@@ -421,9 +436,7 @@ export class SearchIndexService {
       logger.warn(`FTS query failed, trying LIKE search: ${error}`);
 
       // Determine which columns to search
-      const likeCondition = includeContext
-        ? '(symbol LIKE ? OR context LIKE ?)'
-        : 'symbol LIKE ?';
+      const likeCondition = includeContext ? '(symbol LIKE ? OR context LIKE ?)' : 'symbol LIKE ?';
 
       const prefixSql = `
         SELECT
@@ -461,7 +474,7 @@ export class SearchIndexService {
         score: number;
       }>;
 
-      return results.map(row => ({
+      return results.map((row) => ({
         className: row.class_name,
         filePath: row.file_path,
         line: row.line,
@@ -541,7 +554,10 @@ export class SearchIndexService {
   /**
    * Get index statistics
    */
-  getStats(version: string, mapping: MappingType): {
+  getStats(
+    version: string,
+    mapping: MappingType,
+  ): {
     isIndexed: boolean;
     fileCount: number;
     indexedAt: Date | null;
@@ -551,9 +567,11 @@ export class SearchIndexService {
   } {
     const db = this.getDb();
 
-    const metadata = db.prepare(
-      'SELECT file_count, indexed_at FROM index_metadata WHERE version = ? AND mapping = ?'
-    ).get(version, mapping) as { file_count: number; indexed_at: number } | undefined;
+    const metadata = db
+      .prepare(
+        'SELECT file_count, indexed_at FROM index_metadata WHERE version = ? AND mapping = ?',
+      )
+      .get(version, mapping) as { file_count: number; indexed_at: number } | undefined;
 
     if (!metadata) {
       return {
@@ -566,14 +584,16 @@ export class SearchIndexService {
       };
     }
 
-    const counts = db.prepare(`
+    const counts = db
+      .prepare(`
       SELECT entry_type, COUNT(*) as count
       FROM search_index
       WHERE version = ? AND mapping = ?
       GROUP BY entry_type
-    `).all(version, mapping) as Array<{ entry_type: string; count: number }>;
+    `)
+      .all(version, mapping) as Array<{ entry_type: string; count: number }>;
 
-    const countMap = new Map(counts.map(c => [c.entry_type, c.count]));
+    const countMap = new Map(counts.map((c) => [c.entry_type, c.count]));
 
     return {
       isIndexed: true,
@@ -588,16 +608,23 @@ export class SearchIndexService {
   /**
    * List all indexed versions
    */
-  listIndexedVersions(): Array<{ version: string; mapping: string; indexedAt: Date; fileCount: number }> {
+  listIndexedVersions(): Array<{
+    version: string;
+    mapping: string;
+    indexedAt: Date;
+    fileCount: number;
+  }> {
     const db = this.getDb();
-    const rows = db.prepare('SELECT * FROM index_metadata ORDER BY indexed_at DESC').all() as Array<{
+    const rows = db
+      .prepare('SELECT * FROM index_metadata ORDER BY indexed_at DESC')
+      .all() as Array<{
       version: string;
       mapping: string;
       indexed_at: number;
       file_count: number;
     }>;
 
-    return rows.map(row => ({
+    return rows.map((row) => ({
       version: row.version,
       mapping: row.mapping,
       indexedAt: new Date(row.indexed_at),

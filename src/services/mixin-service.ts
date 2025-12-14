@@ -5,26 +5,26 @@
  * Supports full validation against Minecraft target classes with fix suggestions.
  */
 
-import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import AdmZip from 'adm-zip';
-import { logger } from '../utils/logger.js';
-import { MixinParseError } from '../utils/errors.js';
-import { getDecompileService } from './decompile-service.js';
 import { getCacheManager } from '../cache/cache-manager.js';
-import { getDecompiledPath } from '../utils/paths.js';
 import type {
+  MappingType,
+  MixinAccessor,
   MixinClass,
   MixinInjection,
   MixinInjectionType,
   MixinShadow,
-  MixinAccessor,
-  MixinValidationResult,
-  MixinValidationError,
-  MixinValidationWarning,
   MixinSuggestion,
-  MappingType,
+  MixinValidationError,
+  MixinValidationResult,
+  MixinValidationWarning,
 } from '../types/minecraft.js';
+import { MixinParseError } from '../utils/errors.js';
+import { logger } from '../utils/logger.js';
+import { getDecompiledPath } from '../utils/paths.js';
+import { getDecompileService } from './decompile-service.js';
 
 /**
  * Mixin Analysis Service
@@ -38,7 +38,7 @@ export class MixinService {
 
     // Find @Mixin annotation - may span multiple lines
     let mixinAnnotationLine = -1;
-    let mixinTargets: string[] = [];
+    const mixinTargets: string[] = [];
     let priority = 1000; // Default priority
     let annotationText = '';
 
@@ -56,7 +56,7 @@ export class MixinService {
 
         while (parenCount > 0 && j < lines.length - 1) {
           j++;
-          annotationText += ' ' + lines[j];
+          annotationText += ` ${lines[j]}`;
           parenCount += (lines[j].match(/\(/g) || []).length - (lines[j].match(/\)/g) || []).length;
         }
 
@@ -77,7 +77,7 @@ export class MixinService {
           // Parse priority
           const priorityMatch = annotationContent.match(/priority\s*=\s*(\d+)/);
           if (priorityMatch) {
-            priority = parseInt(priorityMatch[1], 10);
+            priority = Number.parseInt(priorityMatch[1], 10);
           }
         }
         break;
@@ -159,18 +159,22 @@ export class MixinService {
           // Build the full annotation text (may span multiple lines)
           let annotationText = line;
           let j = i;
-          let parenCount = (annotationText.match(/\(/g) || []).length - (annotationText.match(/\)/g) || []).length;
+          let parenCount =
+            (annotationText.match(/\(/g) || []).length - (annotationText.match(/\)/g) || []).length;
 
           while (parenCount > 0 && j < lines.length - 1) {
             j++;
-            annotationText += '\n' + lines[j];
-            parenCount += (lines[j].match(/\(/g) || []).length - (lines[j].match(/\)/g) || []).length;
+            annotationText += `\n${lines[j]}`;
+            parenCount +=
+              (lines[j].match(/\(/g) || []).length - (lines[j].match(/\)/g) || []).length;
           }
 
           // Find the method name (next line with method signature)
           let methodName = '';
           for (let k = j + 1; k < Math.min(j + 5, lines.length); k++) {
-            const methodMatch = lines[k].match(/(?:private|public|protected)?\s*(?:static\s+)?(?:void|[\w<>,\[\]]+)\s+(\w+)\s*\(/);
+            const methodMatch = lines[k].match(
+              /(?:private|public|protected)?\s*(?:static\s+)?(?:void|[\w<>,\[\]]+)\s+(\w+)\s*\(/,
+            );
             if (methodMatch) {
               methodName = methodMatch[1];
               break;
@@ -190,8 +194,9 @@ export class MixinService {
           const atTarget = atTargetMatch ? atTargetMatch[1] : undefined;
 
           // Parse cancellable
-          const cancellable = annotationText.includes('cancellable = true') ||
-                             annotationText.includes('cancellable=true');
+          const cancellable =
+            annotationText.includes('cancellable = true') ||
+            annotationText.includes('cancellable=true');
 
           injections.push({
             type,
@@ -228,7 +233,9 @@ export class MixinService {
           if (!nextLine || nextLine.startsWith('@')) continue;
 
           // Check for method (has parentheses)
-          const methodMatch = nextLine.match(/(?:private|public|protected)?\s*(?:static\s+)?(?:native\s+)?(?:abstract\s+)?([\w<>,\[\]]+)\s+(\w+)\s*\(/);
+          const methodMatch = nextLine.match(
+            /(?:private|public|protected)?\s*(?:static\s+)?(?:native\s+)?(?:abstract\s+)?([\w<>,\[\]]+)\s+(\w+)\s*\(/,
+          );
           if (methodMatch) {
             shadows.push({
               name: methodMatch[2],
@@ -240,7 +247,9 @@ export class MixinService {
           }
 
           // Check for field
-          const fieldMatch = nextLine.match(/(?:private|public|protected)?\s*(?:static\s+)?(?:final\s+)?([\w<>,\[\]]+)\s+(\w+)\s*[;=]/);
+          const fieldMatch = nextLine.match(
+            /(?:private|public|protected)?\s*(?:static\s+)?(?:final\s+)?([\w<>,\[\]]+)\s+(\w+)\s*[;=]/,
+          );
           if (fieldMatch) {
             shadows.push({
               name: fieldMatch[2],
@@ -323,7 +332,7 @@ export class MixinService {
     const entries = zip.getEntries();
 
     // Look for fabric.mod.json to find mixin configs (for future use)
-    const fabricModJson = entries.find(e => e.entryName === 'fabric.mod.json');
+    const fabricModJson = entries.find((e) => e.entryName === 'fabric.mod.json');
     if (fabricModJson) {
       try {
         const content = JSON.parse(fabricModJson.getData().toString('utf8'));
@@ -356,10 +365,8 @@ export class MixinService {
       if (entry.entryName.endsWith('.class') && !entry.entryName.includes('$')) {
         // Try to find corresponding source
         const sourceName = entry.entryName.replace('.class', '.java');
-        const sourceEntry = entries.find(e => e.entryName === sourceName);
+        const sourceEntry = entries.find((e) => e.entryName === sourceName);
         if (sourceEntry) {
-          // Already processed
-          continue;
         }
       }
     }
@@ -496,7 +503,7 @@ export class MixinService {
       if (injection.at === 'INVOKE' && !injection.atTarget) {
         warnings.push({
           type: 'fragile_injection',
-          message: `@Inject at INVOKE without specific target is fragile`,
+          message: '@Inject at INVOKE without specific target is fragile',
           element: injection,
           line: injection.line,
         });
@@ -519,7 +526,11 @@ export class MixinService {
     injection: MixinInjection,
     targetSource: string,
     targetClass: string,
-  ): { errors: MixinValidationError[]; warnings: MixinValidationWarning[]; suggestions: MixinSuggestion[] } {
+  ): {
+    errors: MixinValidationError[];
+    warnings: MixinValidationWarning[];
+    suggestions: MixinSuggestion[];
+  } {
     const errors: MixinValidationError[] = [];
     const warnings: MixinValidationWarning[] = [];
     const suggestions: MixinSuggestion[] = [];
@@ -558,7 +569,8 @@ export class MixinService {
     if (injection.at === 'HEAD' && methodName === '<init>') {
       warnings.push({
         type: 'fragile_injection',
-        message: 'Injecting at HEAD of constructor is fragile - consider using @Inject with at = @At(value = "INVOKE", target = "super()")',
+        message:
+          'Injecting at HEAD of constructor is fragile - consider using @Inject with at = @At(value = "INVOKE", target = "super()")',
         element: injection,
         line: injection.line,
       });
@@ -574,7 +586,11 @@ export class MixinService {
     shadow: MixinShadow,
     targetSource: string,
     targetClass: string,
-  ): { errors: MixinValidationError[]; warnings: MixinValidationWarning[]; suggestions: MixinSuggestion[] } {
+  ): {
+    errors: MixinValidationError[];
+    warnings: MixinValidationWarning[];
+    suggestions: MixinSuggestion[];
+  } {
     const errors: MixinValidationError[] = [];
     const warnings: MixinValidationWarning[] = [];
     const suggestions: MixinSuggestion[] = [];
@@ -617,7 +633,11 @@ export class MixinService {
     accessor: MixinAccessor,
     targetSource: string,
     targetClass: string,
-  ): { errors: MixinValidationError[]; warnings: MixinValidationWarning[]; suggestions: MixinSuggestion[] } {
+  ): {
+    errors: MixinValidationError[];
+    warnings: MixinValidationWarning[];
+    suggestions: MixinSuggestion[];
+  } {
     const errors: MixinValidationError[] = [];
     const warnings: MixinValidationWarning[] = [];
     const suggestions: MixinSuggestion[] = [];
@@ -651,7 +671,7 @@ export class MixinService {
     }
 
     // Convert fully qualified name to path
-    const relativePath = className.replace(/\./g, '/') + '.java';
+    const relativePath = `${className.replace(/\./g, '/')}.java`;
     return join(basePath, relativePath);
   }
 
@@ -686,7 +706,9 @@ export class MixinService {
    * Find similar class names
    */
   private findSimilarClasses(className: string, basePath: string, limit = 5): string[] {
-    const simpleName = className.includes('.') ? className.split('.').pop()! : className;
+    const simpleName = className.includes('.')
+      ? (className.split('.').pop() ?? className)
+      : className;
     const similar: string[] = [];
 
     const search = (dir: string, prefix: string) => {
@@ -721,9 +743,9 @@ export class MixinService {
    */
   private extractMethodNames(source: string): string[] {
     const methods: string[] = [];
-    const regex = /(?:public|private|protected)\s+(?:static\s+)?(?:final\s+)?(?:[\w<>,\[\]]+)\s+(\w+)\s*\(/g;
-    let match;
-    while ((match = regex.exec(source)) !== null) {
+    const regex =
+      /(?:public|private|protected)\s+(?:static\s+)?(?:final\s+)?(?:[\w<>,\[\]]+)\s+(\w+)\s*\(/g;
+    for (const match of source.matchAll(regex)) {
       methods.push(match[1]);
     }
     return [...new Set(methods)];
@@ -734,9 +756,9 @@ export class MixinService {
    */
   private extractFieldNames(source: string): string[] {
     const fields: string[] = [];
-    const regex = /(?:public|private|protected)\s+(?:static\s+)?(?:final\s+)?(?:[\w<>,\[\]]+)\s+(\w+)\s*[;=]/g;
-    let match;
-    while ((match = regex.exec(source)) !== null) {
+    const regex =
+      /(?:public|private|protected)\s+(?:static\s+)?(?:final\s+)?(?:[\w<>,\[\]]+)\s+(\w+)\s*[;=]/g;
+    for (const match of source.matchAll(regex)) {
       fields.push(match[1]);
     }
     return [...new Set(fields)];
@@ -747,10 +769,13 @@ export class MixinService {
    */
   private findSimilar(target: string, candidates: string[], maxDistance = 3): string[] {
     return candidates
-      .map(c => ({ name: c, distance: this.levenshteinDistance(target.toLowerCase(), c.toLowerCase()) }))
-      .filter(c => c.distance <= maxDistance)
+      .map((c) => ({
+        name: c,
+        distance: this.levenshteinDistance(target.toLowerCase(), c.toLowerCase()),
+      }))
+      .filter((c) => c.distance <= maxDistance)
       .sort((a, b) => a.distance - b.distance)
-      .map(c => c.name);
+      .map((c) => c.name);
   }
 
   /**
@@ -758,7 +783,11 @@ export class MixinService {
    */
   private isSimilar(a: string, b: string): boolean {
     const distance = this.levenshteinDistance(a.toLowerCase(), b.toLowerCase());
-    return distance <= 3 || b.toLowerCase().includes(a.toLowerCase()) || a.toLowerCase().includes(b.toLowerCase());
+    return (
+      distance <= 3 ||
+      b.toLowerCase().includes(a.toLowerCase()) ||
+      a.toLowerCase().includes(b.toLowerCase())
+    );
   }
 
   /**
@@ -826,8 +855,8 @@ export class MixinService {
 
     return {
       totalMixins: mixins.length,
-      validMixins: results.filter(r => r.isValid).length,
-      invalidMixins: results.filter(r => !r.isValid).length,
+      validMixins: results.filter((r) => r.isValid).length,
+      invalidMixins: results.filter((r) => !r.isValid).length,
       results,
     };
   }

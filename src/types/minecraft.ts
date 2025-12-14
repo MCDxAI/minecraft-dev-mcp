@@ -194,7 +194,12 @@ export interface MixinValidationResult {
 /** Validation error */
 export interface MixinValidationError {
   /** Error type */
-  type: 'target_not_found' | 'method_not_found' | 'signature_mismatch' | 'injection_point_invalid' | 'shadow_not_found';
+  type:
+    | 'target_not_found'
+    | 'method_not_found'
+    | 'signature_mismatch'
+    | 'injection_point_invalid'
+    | 'shadow_not_found';
   /** Error message */
   message: string;
   /** Related mixin element */

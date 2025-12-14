@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
-import { logger } from '../utils/logger.js';
 import { JavaProcessError } from '../utils/errors.js';
+import { logger } from '../utils/logger.js';
 
 export interface JavaProcessOptions {
   maxMemory?: string; // e.g., "2G"
@@ -104,13 +104,7 @@ export async function executeJavaProcess(
       logger.info(`Java process exited with code ${exitCode}`);
 
       if (exitCode !== 0) {
-        reject(
-          new JavaProcessError(
-            `java -jar ${jarPath} ${args.join(' ')}`,
-            exitCode,
-            stderr,
-          ),
-        );
+        reject(new JavaProcessError(`java -jar ${jarPath} ${args.join(' ')}`, exitCode, stderr));
       } else {
         resolve({ exitCode, stdout, stderr });
       }

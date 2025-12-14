@@ -1,12 +1,12 @@
-import { getVineflower } from '../java/vineflower.js';
-import { getRemapService } from './remap-service.js';
-import { getCacheManager } from '../cache/cache-manager.js';
-import { logger } from '../utils/logger.js';
-import { getDecompiledPath, classNameToPath } from '../utils/paths.js';
-import type { MappingType } from '../types/minecraft.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { getCacheManager } from '../cache/cache-manager.js';
+import { getVineflower } from '../java/vineflower.js';
+import type { MappingType } from '../types/minecraft.js';
 import { ClassNotFoundError } from '../utils/errors.js';
+import { logger } from '../utils/logger.js';
+import { classNameToPath, getDecompiledPath } from '../utils/paths.js';
+import { getRemapService } from './remap-service.js';
 
 /**
  * Service for decompiling Minecraft JARs
@@ -80,11 +80,7 @@ export class DecompileService {
   /**
    * Get source code for a specific class
    */
-  async getClassSource(
-    version: string,
-    className: string,
-    mapping: MappingType,
-  ): Promise<string> {
+  async getClassSource(version: string, className: string, mapping: MappingType): Promise<string> {
     // Ensure version is decompiled
     const decompiledDir = await this.decompileVersion(version, mapping);
 
@@ -93,11 +89,7 @@ export class DecompileService {
     const fullPath = join(decompiledDir, classPath);
 
     if (!existsSync(fullPath)) {
-      throw new ClassNotFoundError(
-        className,
-        version,
-        `Class file not found at ${fullPath}`,
-      );
+      throw new ClassNotFoundError(className, version, `Class file not found at ${fullPath}`);
     }
 
     logger.debug(`Reading class source: ${fullPath}`);

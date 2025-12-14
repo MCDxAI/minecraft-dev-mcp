@@ -1,8 +1,8 @@
-import { describe, it, expect } from 'vitest';
-import { MojangDownloader } from '../../src/downloaders/mojang-downloader.js';
-import { getCacheManager } from '../../src/cache/cache-manager.js';
-import { TEST_VERSION } from '../test-constants.js';
 import { existsSync } from 'node:fs';
+import { describe, expect, it } from 'vitest';
+import { getCacheManager } from '../../src/cache/cache-manager.js';
+import { MojangDownloader } from '../../src/downloaders/mojang-downloader.js';
+import { TEST_VERSION } from '../test-constants.js';
 
 /**
  * JAR Download Tests

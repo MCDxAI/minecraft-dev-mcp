@@ -21,7 +21,13 @@
       "mcp__minecraft-dev__analyze_mod_jar",
       "WebFetch(domain:www.minecraft.net)",
       "WebFetch(domain:fabricmc.net)",
-      "WebFetch(domain:maven.fabricmc.net)"
+      "WebFetch(domain:maven.fabricmc.net)",
+      "Bash(npx biome:*)",
+      "Bash(ls:*)",
+      "Bash(java -jar:*)",
+      "Bash(head:*)",
+      "Bash(npx vitest:*)",
+      "Bash(git reset:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

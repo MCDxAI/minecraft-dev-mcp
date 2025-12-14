@@ -1,26 +1,28 @@
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { join, relative } from 'node:path';
 import { z } from 'zod';
-import { getDecompileService } from '../services/decompile-service.js';
-import { getVersionManager } from '../services/version-manager.js';
-import { getRegistryService } from '../services/registry-service.js';
-import { getRemapService } from '../services/remap-service.js';
-import { getMappingService } from '../services/mapping-service.js';
-import { getMixinService } from '../services/mixin-service.js';
+import { getCacheManager } from '../cache/cache-manager.js';
 import { getAccessWidenerService } from '../services/access-widener-service.js';
 import { getAstDiffService } from '../services/ast-diff-service.js';
-import { getSearchIndexService } from '../services/search-index-service.js';
+import { getDecompileService } from '../services/decompile-service.js';
 import { getDocumentationService } from '../services/documentation-service.js';
+import { getMappingService } from '../services/mapping-service.js';
+import { getMixinService } from '../services/mixin-service.js';
 import { getModAnalyzerService } from '../services/mod-analyzer-service.js';
-import { getCacheManager } from '../cache/cache-manager.js';
-import { getDecompiledPath } from '../utils/paths.js';
+import { getRegistryService } from '../services/registry-service.js';
+import { getRemapService } from '../services/remap-service.js';
+import { getSearchIndexService } from '../services/search-index-service.js';
+import { getVersionManager } from '../services/version-manager.js';
+import type { AccessWidener, MappingType, MixinClass } from '../types/minecraft.js';
 import { logger } from '../utils/logger.js';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
-import type { MappingType } from '../types/minecraft.js';
+import { getDecompiledPath } from '../utils/paths.js';
 
 // Tool input schemas
 const GetMinecraftSourceSchema = z.object({
   version: z.string().describe('Minecraft version (e.g., "1.21.10")'),
-  className: z.string().describe('Fully qualified class name (e.g., "net.minecraft.world.entity.Entity")'),
+  className: z
+    .string()
+    .describe('Fully qualified class name (e.g., "net.minecraft.world.entity.Entity")'),
   mapping: z.enum(['yarn', 'mojmap']).describe('Mapping type to use'),
 });
 
@@ -32,7 +34,10 @@ const DecompileMinecraftVersionSchema = z.object({
 
 const GetRegistryDataSchema = z.object({
   version: z.string().describe('Minecraft version'),
-  registry: z.string().optional().describe('Specific registry to fetch (e.g., "blocks", "items", "entities")'),
+  registry: z
+    .string()
+    .optional()
+    .describe('Specific registry to fetch (e.g., "blocks", "items", "entities")'),
 });
 
 const RemapModJarSchema = z.object({
@@ -81,7 +86,10 @@ const CompareVersionsDetailedSchema = z.object({
   fromVersion: z.string().describe('Source Minecraft version'),
   toVersion: z.string().describe('Target Minecraft version'),
   mapping: z.enum(['yarn', 'mojmap']).describe('Mapping type to use'),
-  packages: z.array(z.string()).optional().describe('Specific packages to compare (e.g., ["net.minecraft.entity"])'),
+  packages: z
+    .array(z.string())
+    .optional()
+    .describe('Specific packages to compare (e.g., ["net.minecraft.entity"])'),
   maxClasses: z.number().optional().describe('Maximum classes to compare (default: 1000)'),
 });
 
@@ -94,7 +102,10 @@ const SearchIndexedSchema = z.object({
   query: z.string().describe('Search query (supports FTS5 syntax)'),
   version: z.string().describe('Minecraft version'),
   mapping: z.enum(['yarn', 'mojmap']).describe('Mapping type'),
-  types: z.array(z.enum(['class', 'method', 'field'])).optional().describe('Entry types to search'),
+  types: z
+    .array(z.enum(['class', 'method', 'field']))
+    .optional()
+    .describe('Entry types to search'),
   limit: z.number().optional().describe('Maximum results (default: 100)'),
 });
 
@@ -109,8 +120,14 @@ const SearchDocumentationSchema = z.object({
 // Phase 3 Tool Schemas
 const AnalyzeModJarSchema = z.object({
   jarPath: z.string().describe('Local file path to the mod JAR file'),
-  includeAllClasses: z.boolean().optional().describe('Include all classes in output (can be large, default: false)'),
-  includeRawMetadata: z.boolean().optional().describe('Include raw metadata files (default: false)'),
+  includeAllClasses: z
+    .boolean()
+    .optional()
+    .describe('Include all classes in output (can be large, default: false)'),
+  includeRawMetadata: z
+    .boolean()
+    .optional()
+    .describe('Include raw metadata files (default: false)'),
 });
 
 // Tool definitions
@@ -128,8 +145,7 @@ export const tools = [
         },
         className: {
           type: 'string',
-          description:
-            'Fully qualified class name (e.g., "net.minecraft.world.entity.Entity")',
+          description: 'Fully qualified class name (e.g., "net.minecraft.world.entity.Entity")',
         },
         mapping: {
           type: 'string',
@@ -464,8 +480,7 @@ export const tools = [
   },
   {
     name: 'search_documentation',
-    description:
-      'Search for documentation across all known Minecraft/Fabric topics.',
+    description: 'Search for documentation across all known Minecraft/Fabric topics.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -495,7 +510,8 @@ export const tools = [
         },
         includeRawMetadata: {
           type: 'boolean',
-          description: 'Include raw metadata files (fabric.mod.json, mixin configs). Default: false',
+          description:
+            'Include raw metadata files (fabric.mod.json, mixin configs). Default: false',
         },
       },
       required: ['jarPath'],
@@ -512,7 +528,11 @@ export async function handleGetMinecraftSource(args: unknown) {
   const decompileService = getDecompileService();
 
   try {
-    const source = await decompileService.getClassSource(version, className, mapping as MappingType);
+    const source = await decompileService.getClassSource(
+      version,
+      className,
+      mapping as MappingType,
+    );
 
     return {
       content: [
@@ -797,7 +817,13 @@ export async function handleSearchMinecraftCode(args: unknown) {
           }
 
           // For content/method/field search, read file and search
-          if ((searchType === 'content' || searchType === 'method' || searchType === 'field' || searchType === 'all') && results.length < limit) {
+          if (
+            (searchType === 'content' ||
+              searchType === 'method' ||
+              searchType === 'field' ||
+              searchType === 'all') &&
+            results.length < limit
+          ) {
             const content = readFileSync(fullPath, 'utf8');
             const lines = content.split('\n');
             const regex = new RegExp(query, 'gi');
@@ -807,9 +833,16 @@ export async function handleSearchMinecraftCode(args: unknown) {
               if (regex.test(line)) {
                 // Determine type based on line content
                 let type = 'content';
-                if (searchType === 'method' || (searchType === 'all' && /\s+(public|private|protected)\s+.*\(/.test(line))) {
+                if (
+                  searchType === 'method' ||
+                  (searchType === 'all' && /\s+(public|private|protected)\s+.*\(/.test(line))
+                ) {
                   type = 'method';
-                } else if (searchType === 'field' || (searchType === 'all' && /\s+(public|private|protected)\s+\w+\s+\w+\s*[;=]/.test(line))) {
+                } else if (
+                  searchType === 'field' ||
+                  (searchType === 'all' &&
+                    /\s+(public|private|protected)\s+\w+\s+\w+\s*[;=]/.test(line))
+                ) {
                   type = 'field';
                 }
 
@@ -946,8 +979,14 @@ export async function handleCompareVersions(args: unknown) {
     // Compare registries
     if (category === 'registry' || category === 'all') {
       try {
-        const fromRegistry = await registryService.getRegistryData(fromVersion) as Record<string, unknown>;
-        const toRegistry = await registryService.getRegistryData(toVersion) as Record<string, unknown>;
+        const fromRegistry = (await registryService.getRegistryData(fromVersion)) as Record<
+          string,
+          unknown
+        >;
+        const toRegistry = (await registryService.getRegistryData(toVersion)) as Record<
+          string,
+          unknown
+        >;
 
         const added: Record<string, string[]> = {};
         const removed: Record<string, string[]> = {};
@@ -956,8 +995,12 @@ export async function handleCompareVersions(args: unknown) {
         const allKeys = new Set([...Object.keys(fromRegistry), ...Object.keys(toRegistry)]);
 
         for (const key of allKeys) {
-          const fromEntries = new Set(Object.keys((fromRegistry[key] as Record<string, unknown>) || {}));
-          const toEntries = new Set(Object.keys((toRegistry[key] as Record<string, unknown>) || {}));
+          const fromEntries = new Set(
+            Object.keys((fromRegistry[key] as Record<string, unknown>) || {}),
+          );
+          const toEntries = new Set(
+            Object.keys((toRegistry[key] as Record<string, unknown>) || {}),
+          );
 
           const addedEntries = [...toEntries].filter((e) => !fromEntries.has(e));
           const removedEntries = [...fromEntries].filter((e) => !toEntries.has(e));
@@ -1010,7 +1053,7 @@ export async function handleAnalyzeMixin(args: unknown) {
 
   try {
     // Check if source is a file path or actual source code
-    let mixin;
+    let mixin: MixinClass | null = null;
     if (existsSync(source)) {
       // It's a path - could be JAR, directory, or single file
       if (source.endsWith('.jar')) {
@@ -1023,40 +1066,53 @@ export async function handleAnalyzeMixin(args: unknown) {
 
         // Validate all mixins
         const results = await Promise.all(
-          mixins.map(m => mixinService.validateMixin(m, mcVersion, mapping as MappingType))
+          mixins.map((m) => mixinService.validateMixin(m, mcVersion, mapping as MappingType)),
         );
 
         return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify({
-              totalMixins: mixins.length,
-              validMixins: results.filter(r => r.isValid).length,
-              invalidMixins: results.filter(r => !r.isValid).length,
-              results,
-            }, null, 2),
-          }],
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  totalMixins: mixins.length,
+                  validMixins: results.filter((r) => r.isValid).length,
+                  invalidMixins: results.filter((r) => !r.isValid).length,
+                  results,
+                },
+                null,
+                2,
+              ),
+            },
+          ],
         };
-      } else if (source.endsWith('.java')) {
+      }
+      if (source.endsWith('.java')) {
         const sourceCode = readFileSync(source, 'utf8');
         mixin = mixinService.parseMixinSource(sourceCode, source);
       } else {
         // Assume directory
         const mixins = mixinService.parseMixinsFromDirectory(source);
         const results = await Promise.all(
-          mixins.map(m => mixinService.validateMixin(m, mcVersion, mapping as MappingType))
+          mixins.map((m) => mixinService.validateMixin(m, mcVersion, mapping as MappingType)),
         );
 
         return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify({
-              totalMixins: mixins.length,
-              validMixins: results.filter(r => r.isValid).length,
-              invalidMixins: results.filter(r => !r.isValid).length,
-              results,
-            }, null, 2),
-          }],
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  totalMixins: mixins.length,
+                  validMixins: results.filter((r) => r.isValid).length,
+                  invalidMixins: results.filter((r) => !r.isValid).length,
+                  results,
+                },
+                null,
+                2,
+              ),
+            },
+          ],
         };
       }
     } else {
@@ -1074,15 +1130,22 @@ export async function handleAnalyzeMixin(args: unknown) {
     const result = await mixinService.validateMixin(mixin, mcVersion, mapping as MappingType);
 
     return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify(result, null, 2),
-      }],
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(result, null, 2),
+        },
+      ],
     };
   } catch (error) {
     logger.error('Failed to analyze mixin', error);
     return {
-      content: [{ type: 'text', text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}` }],
+      content: [
+        {
+          type: 'text',
+          text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        },
+      ],
       isError: true,
     };
   }
@@ -1097,7 +1160,7 @@ export async function handleValidateAccessWidener(args: unknown) {
   const awService = getAccessWidenerService();
 
   try {
-    let accessWidener;
+    let accessWidener: AccessWidener;
 
     // Check if content is a file path
     if (existsSync(content)) {
@@ -1109,26 +1172,37 @@ export async function handleValidateAccessWidener(args: unknown) {
     const validation = await awService.validateAccessWidener(
       accessWidener,
       mcVersion,
-      mapping as MappingType
+      mapping as MappingType,
     );
 
     return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify({
-          accessWidener: {
-            namespace: accessWidener.namespace,
-            version: accessWidener.version,
-            entryCount: accessWidener.entries.length,
-          },
-          validation,
-        }, null, 2),
-      }],
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(
+            {
+              accessWidener: {
+                namespace: accessWidener.namespace,
+                version: accessWidener.version,
+                entryCount: accessWidener.entries.length,
+              },
+              validation,
+            },
+            null,
+            2,
+          ),
+        },
+      ],
     };
   } catch (error) {
     logger.error('Failed to validate access widener', error);
     return {
-      content: [{ type: 'text', text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}` }],
+      content: [
+        {
+          type: 'text',
+          text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        },
+      ],
       isError: true,
     };
   }
@@ -1136,7 +1210,8 @@ export async function handleValidateAccessWidener(args: unknown) {
 
 // Handler for compare_versions_detailed
 export async function handleCompareVersionsDetailed(args: unknown) {
-  const { fromVersion, toVersion, mapping, packages, maxClasses } = CompareVersionsDetailedSchema.parse(args);
+  const { fromVersion, toVersion, mapping, packages, maxClasses } =
+    CompareVersionsDetailedSchema.parse(args);
 
   logger.info(`Comparing ${fromVersion} vs ${toVersion} (detailed, ${mapping})`);
 
@@ -1147,19 +1222,26 @@ export async function handleCompareVersionsDetailed(args: unknown) {
       fromVersion,
       toVersion,
       mapping as MappingType,
-      { packages, maxClasses }
+      { packages, maxClasses },
     );
 
     return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify(diff, null, 2),
-      }],
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(diff, null, 2),
+        },
+      ],
     };
   } catch (error) {
     logger.error('Failed to compare versions', error);
     return {
-      content: [{ type: 'text', text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}` }],
+      content: [
+        {
+          type: 'text',
+          text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        },
+      ],
       isError: true,
     };
   }
@@ -1178,10 +1260,12 @@ export async function handleIndexVersion(args: unknown) {
     if (searchService.isIndexed(version, mapping as MappingType)) {
       const stats = searchService.getStats(version, mapping as MappingType);
       return {
-        content: [{
-          type: 'text',
-          text: `Version ${version}/${mapping} is already indexed.\n\nStats:\n${JSON.stringify(stats, null, 2)}`,
-        }],
+        content: [
+          {
+            type: 'text',
+            text: `Version ${version}/${mapping} is already indexed.\n\nStats:\n${JSON.stringify(stats, null, 2)}`,
+          },
+        ],
       };
     }
 
@@ -1192,19 +1276,26 @@ export async function handleIndexVersion(args: unknown) {
         if (current % 100 === 0) {
           logger.info(`Indexing: ${current}/${total} - ${className}`);
         }
-      }
+      },
     );
 
     return {
-      content: [{
-        type: 'text',
-        text: `Indexing complete!\n\nFiles indexed: ${result.fileCount}\nDuration: ${result.duration}ms`,
-      }],
+      content: [
+        {
+          type: 'text',
+          text: `Indexing complete!\n\nFiles indexed: ${result.fileCount}\nDuration: ${result.duration}ms`,
+        },
+      ],
     };
   } catch (error) {
     logger.error('Failed to index version', error);
     return {
-      content: [{ type: 'text', text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}` }],
+      content: [
+        {
+          type: 'text',
+          text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        },
+      ],
       isError: true,
     };
   }
@@ -1219,29 +1310,38 @@ export async function handleSearchIndexed(args: unknown) {
   const searchService = getSearchIndexService();
 
   try {
-    const results = searchService.search(
-      query,
-      version,
-      mapping as MappingType,
-      { types: types as Array<'class' | 'method' | 'field'>, limit }
-    );
+    const results = searchService.search(query, version, mapping as MappingType, {
+      types: types as Array<'class' | 'method' | 'field'>,
+      limit,
+    });
 
     return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify({
-          query,
-          version,
-          mapping,
-          count: results.length,
-          results,
-        }, null, 2),
-      }],
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(
+            {
+              query,
+              version,
+              mapping,
+              count: results.length,
+              results,
+            },
+            null,
+            2,
+          ),
+        },
+      ],
     };
   } catch (error) {
     logger.error('Failed to search', error);
     return {
-      content: [{ type: 'text', text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}` }],
+      content: [
+        {
+          type: 'text',
+          text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        },
+      ],
       isError: true,
     };
   }
@@ -1260,23 +1360,32 @@ export async function handleGetDocumentation(args: unknown) {
 
     if (docs.length === 0) {
       return {
-        content: [{
-          type: 'text',
-          text: `No documentation found for ${className}`,
-        }],
+        content: [
+          {
+            type: 'text',
+            text: `No documentation found for ${className}`,
+          },
+        ],
       };
     }
 
     return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify(docs, null, 2),
-      }],
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(docs, null, 2),
+        },
+      ],
     };
   } catch (error) {
     logger.error('Failed to get documentation', error);
     return {
-      content: [{ type: 'text', text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}` }],
+      content: [
+        {
+          type: 'text',
+          text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        },
+      ],
       isError: true,
     };
   }
@@ -1294,19 +1403,30 @@ export async function handleSearchDocumentation(args: unknown) {
     const results = docService.searchDocumentation(query);
 
     return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify({
-          query,
-          count: results.length,
-          results,
-        }, null, 2),
-      }],
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(
+            {
+              query,
+              count: results.length,
+              results,
+            },
+            null,
+            2,
+          ),
+        },
+      ],
     };
   } catch (error) {
     logger.error('Failed to search documentation', error);
     return {
-      content: [{ type: 'text', text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}` }],
+      content: [
+        {
+          type: 'text',
+          text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        },
+      ],
       isError: true,
     };
   }
@@ -1326,10 +1446,12 @@ export async function handleAnalyzeModJar(args: unknown) {
     // Check file exists
     if (!existsSync(jarPath)) {
       return {
-        content: [{
-          type: 'text',
-          text: `Error: JAR file not found: ${jarPath}`,
-        }],
+        content: [
+          {
+            type: 'text',
+            text: `Error: JAR file not found: ${jarPath}`,
+          },
+        ],
         isError: true,
       };
     }
@@ -1341,15 +1463,22 @@ export async function handleAnalyzeModJar(args: unknown) {
     });
 
     return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify(result, null, 2),
-      }],
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(result, null, 2),
+        },
+      ],
     };
   } catch (error) {
     logger.error('Failed to analyze mod JAR', error);
     return {
-      content: [{ type: 'text', text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}` }],
+      content: [
+        {
+          type: 'text',
+          text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        },
+      ],
       isError: true,
     };
   }

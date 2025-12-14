@@ -1,9 +1,9 @@
-import { executeJavaProcess } from './java-process.js';
+import { dirname } from 'node:path';
 import { getJavaResourceDownloader } from '../downloaders/java-resources.js';
-import { logger } from '../utils/logger.js';
 import { RemappingError } from '../utils/errors.js';
 import { ensureDir } from '../utils/file-utils.js';
-import { dirname } from 'node:path';
+import { logger } from '../utils/logger.js';
+import { executeJavaProcess } from './java-process.js';
 
 export interface TinyRemapperOptions {
   fromNamespace: string;
@@ -42,17 +42,17 @@ export class TinyRemapperWrapper {
     const jarPath = await this.ensureJar();
     ensureDir(dirname(outputJar));
 
-    const { fromNamespace, toNamespace, threads = 4, rebuildSourceFilenames = true, onProgress } = options;
+    const {
+      fromNamespace,
+      toNamespace,
+      threads = 4,
+      rebuildSourceFilenames = true,
+      onProgress,
+    } = options;
 
     // Build tiny-remapper arguments
     // Format: <input> <output> <mappings> <from> <to> [--option=value]
-    const args: string[] = [
-      inputJar,
-      outputJar,
-      mappingsFile,
-      fromNamespace,
-      toNamespace,
-    ];
+    const args: string[] = [inputJar, outputJar, mappingsFile, fromNamespace, toNamespace];
 
     // Options must use --option=value format (NOT --option value)
     if (threads > 1) {

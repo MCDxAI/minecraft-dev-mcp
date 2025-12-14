@@ -1,10 +1,10 @@
-import { downloadFile, fetchText } from './http-client.js';
-import { getMappingPath, paths } from '../utils/paths.js';
-import { logger } from '../utils/logger.js';
-import { ensureDir } from '../utils/file-utils.js';
 import { dirname, join } from 'node:path';
-import { MappingNotFoundError } from '../utils/errors.js';
 import type { MappingType } from '../types/minecraft.js';
+import { MappingNotFoundError } from '../utils/errors.js';
+import { ensureDir } from '../utils/file-utils.js';
+import { logger } from '../utils/logger.js';
+import { getMappingPath, paths } from '../utils/paths.js';
+import { downloadFile, fetchText } from './http-client.js';
 
 const FABRIC_MAVEN_BASE = 'https://maven.fabricmc.net';
 
@@ -20,9 +20,9 @@ export class FabricMavenClient {
 
     // Filter versions that match the Minecraft version
     // Format: "1.21.10+build.4", "1.21.10-pre1+build.1", etc.
-    const matchingVersions = availableVersions.filter(v => {
+    const matchingVersions = availableVersions.filter((v) => {
       // Match exact release versions (not pre-release or RC)
-      return v.startsWith(minecraftVersion + '+build.');
+      return v.startsWith(`${minecraftVersion}+build.`);
     });
 
     if (matchingVersions.length === 0) {
@@ -61,7 +61,9 @@ export class FabricMavenClient {
 
     ensureDir(dirname(destination));
 
-    logger.info(`Downloading Yarn mappings ${yarnVersion} for Minecraft ${minecraftVersion} (Tiny v2)`);
+    logger.info(
+      `Downloading Yarn mappings ${yarnVersion} for Minecraft ${minecraftVersion} (Tiny v2)`,
+    );
 
     try {
       // Download the JAR (it's actually a ZIP with mappings.tiny inside)
@@ -113,9 +115,8 @@ export class FabricMavenClient {
     // Simple XML parsing to extract version tags
     const versionRegex = /<version>([^<]+)<\/version>/g;
     const versions: string[] = [];
-    let match: RegExpExecArray | null;
 
-    while ((match = versionRegex.exec(xml)) !== null) {
+    for (const match of xml.matchAll(versionRegex)) {
       versions.push(match[1]);
     }
 
