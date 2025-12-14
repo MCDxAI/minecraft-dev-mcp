@@ -54,8 +54,9 @@ export class TinyV2Parser {
   private header: TinyV2Header | null = null;
 
   constructor(content: string) {
-    // Don't trim lines - leading tabs are significant in Tiny v2 format
-    this.lines = content.split('\n');
+    // Normalize line endings (handle Windows CRLF) while preserving leading tabs
+    // Leading tabs are significant in Tiny v2 format for nesting
+    this.lines = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
   }
 
   parse(): { header: TinyV2Header; classes: TinyV2Class[] } {

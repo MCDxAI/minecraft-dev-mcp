@@ -1,13 +1,20 @@
+import { existsSync, unlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { verifyJavaVersion } from '../../src/java/java-process.js';
 import {
   handleCompareVersions,
+  handleDecompileMinecraftVersion,
   handleFindMapping,
+  handleGetRegistryData,
+  handleListMinecraftVersions,
+  handleRemapModJar,
   handleSearchMinecraftCode,
   tools,
 } from '../../src/server/tools.js';
 import { getDecompileService } from '../../src/services/decompile-service.js';
-import { TEST_MAPPING, TEST_VERSION } from '../test-constants.js';
+import { METEOR_JAR_PATH, TEST_MAPPING, TEST_VERSION } from '../test-constants.js';
 
 /**
  * Core MCP Tools Integration Tests
@@ -126,7 +133,7 @@ describe('New MCP Tools', () => {
     expect(data.results).toBeDefined();
   }, 60000);
 
-  it('should find mapping for a class name', async () => {
+  it('should find mapping for a class name (yarn → intermediary)', async () => {
     const result = await handleFindMapping({
       symbol: 'Entity',
       version: TEST_VERSION,
@@ -149,6 +156,59 @@ describe('New MCP Tools', () => {
       expect(data.source).toBe('net/minecraft/entity/Entity');
     }
   }, 60000);
+
+  it('should find mapping for mojmap → yarn (two-step bridge)', async () => {
+    const result = await handleFindMapping({
+      symbol: 'net/minecraft/world/entity/Entity',
+      version: TEST_VERSION,
+      sourceMapping: 'mojmap',
+      targetMapping: 'yarn',
+    });
+
+    expect(result).toBeDefined();
+    expect(result.content).toBeDefined();
+    expect(result.content.length).toBe(1);
+
+    const text = result.content[0].text;
+    if (!text.startsWith('Error:')) {
+      const data = JSON.parse(text);
+      expect(data.found).toBe(true);
+      expect(data.target).toContain('Entity');
+    }
+  }, 120000);
+
+  it('should find mapping for official (obfuscated) → yarn', async () => {
+    // First get an obfuscated class name by looking up intermediary → official
+    const intResult = await handleFindMapping({
+      symbol: 'net/minecraft/class_1297',
+      version: TEST_VERSION,
+      sourceMapping: 'intermediary',
+      targetMapping: 'official',
+    });
+
+    expect(intResult).toBeDefined();
+    const intText = intResult.content[0].text;
+    if (!intText.startsWith('Error:')) {
+      const intData = JSON.parse(intText);
+      expect(intData.found).toBe(true);
+
+      // Now lookup from official to yarn
+      const result = await handleFindMapping({
+        symbol: intData.target,
+        version: TEST_VERSION,
+        sourceMapping: 'official',
+        targetMapping: 'yarn',
+      });
+
+      expect(result).toBeDefined();
+      const text = result.content[0].text;
+      if (!text.startsWith('Error:')) {
+        const data = JSON.parse(text);
+        expect(data.found).toBe(true);
+        expect(data.target).toContain('Entity');
+      }
+    }
+  }, 180000);
 
   it('should compare registry data between versions (same version comparison)', async () => {
     const result = await handleCompareVersions({
@@ -189,4 +249,133 @@ describe('New MCP Tools', () => {
     expect(data.classes.addedCount).toBe(0);
     expect(data.classes.removedCount).toBe(0);
   }, 30000);
+});
+
+describe('Version and Registry Tools', () => {
+  it('should list available Minecraft versions', async () => {
+    const result = await handleListMinecraftVersions();
+
+    expect(result).toBeDefined();
+    expect(result.content).toBeDefined();
+    expect(result.content.length).toBe(1);
+
+    const data = JSON.parse(result.content[0].text);
+    expect(data.available).toBeDefined();
+    expect(Array.isArray(data.available)).toBe(true);
+    expect(data.available.length).toBeGreaterThan(0);
+
+    // Should include version numbers in expected format (e.g., 1.21.x)
+    const hasValidVersionFormat = data.available.some((v: string) => /^1\.\d+(\.\d+)?/.test(v));
+    expect(hasValidVersionFormat).toBe(true);
+  }, 30000);
+
+  it('should get block registry data', async () => {
+    const result = await handleGetRegistryData({
+      version: TEST_VERSION,
+      registry: 'block',
+    });
+
+    expect(result).toBeDefined();
+    expect(result.content).toBeDefined();
+    expect(result.content.length).toBe(1);
+
+    const data = JSON.parse(result.content[0].text);
+    expect(data.entries).toBeDefined();
+    expect(data.entries['minecraft:stone']).toBeDefined();
+    expect(data.entries['minecraft:dirt']).toBeDefined();
+    expect(Object.keys(data.entries).length).toBeGreaterThan(100);
+  }, 300000);
+
+  it('should get item registry data', async () => {
+    const result = await handleGetRegistryData({
+      version: TEST_VERSION,
+      registry: 'item',
+    });
+
+    expect(result).toBeDefined();
+    expect(result.content).toBeDefined();
+    expect(result.content.length).toBe(1);
+
+    const data = JSON.parse(result.content[0].text);
+    expect(data.entries).toBeDefined();
+    expect(data.entries['minecraft:diamond']).toBeDefined();
+    expect(data.entries['minecraft:stick']).toBeDefined();
+    expect(Object.keys(data.entries).length).toBeGreaterThan(100);
+  }, 300000);
+});
+
+describe('Decompile and Remap Tools', () => {
+  beforeAll(async () => {
+    await verifyJavaVersion(17);
+  }, 30000);
+
+  it('should handle decompile_minecraft_version (cached version)', async () => {
+    // This test uses the already-decompiled version from previous tests
+    // to avoid triggering a 10+ minute full decompilation
+    const result = await handleDecompileMinecraftVersion({
+      version: TEST_VERSION,
+      mapping: TEST_MAPPING,
+      force: false,
+    });
+
+    expect(result).toBeDefined();
+    expect(result.content).toBeDefined();
+    expect(result.content.length).toBe(1);
+
+    const text = result.content[0].text;
+    // Should return success message with version info
+    expect(text).toContain(TEST_VERSION);
+    expect(text).toContain(TEST_MAPPING);
+    // Should mention completion or classes
+    expect(text).toMatch(/completed|classes/i);
+  }, 600000);
+
+  it('should handle remap_mod_jar with Fabric mod', async () => {
+    // Skip if fixture doesn't exist
+    if (!existsSync(METEOR_JAR_PATH)) {
+      console.log('Skipping - meteor JAR fixture not found');
+      return;
+    }
+
+    const outputPath = join(tmpdir(), `remapped-test-${Date.now()}.jar`);
+
+    try {
+      const result = await handleRemapModJar({
+        inputJar: METEOR_JAR_PATH,
+        outputJar: outputPath,
+        mcVersion: '1.21.10', // Match the mod's MC version
+        toMapping: TEST_MAPPING,
+      });
+
+      expect(result).toBeDefined();
+      expect(result.content).toBeDefined();
+      expect(result.content.length).toBe(1);
+
+      const text = result.content[0].text;
+      // Should return success message
+      expect(text).toContain('remapped successfully');
+      expect(text).toContain(outputPath);
+
+      // Verify output file was created
+      expect(existsSync(outputPath)).toBe(true);
+    } finally {
+      // Cleanup
+      if (existsSync(outputPath)) {
+        unlinkSync(outputPath);
+      }
+    }
+  }, 300000);
+
+  it('should handle remap_mod_jar with non-existent input', async () => {
+    const result = await handleRemapModJar({
+      inputJar: '/non/existent/path.jar',
+      outputJar: '/tmp/output.jar',
+      mcVersion: TEST_VERSION,
+      toMapping: TEST_MAPPING,
+    });
+
+    expect(result).toBeDefined();
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('not found');
+  });
 });

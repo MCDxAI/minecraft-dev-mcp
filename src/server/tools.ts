@@ -50,8 +50,12 @@ const RemapModJarSchema = z.object({
 const FindMappingSchema = z.object({
   symbol: z.string().describe('Symbol name to look up (class name, method name, or field name)'),
   version: z.string().describe('Minecraft version'),
-  sourceMapping: z.enum(['yarn', 'mojmap', 'intermediary']).describe('Source mapping type'),
-  targetMapping: z.enum(['yarn', 'mojmap', 'intermediary']).describe('Target mapping type'),
+  sourceMapping: z
+    .enum(['yarn', 'mojmap', 'intermediary', 'official'])
+    .describe('Source mapping type'),
+  targetMapping: z
+    .enum(['yarn', 'mojmap', 'intermediary', 'official'])
+    .describe('Target mapping type'),
 });
 
 const SearchMinecraftCodeSchema = z.object({
@@ -240,7 +244,7 @@ export const tools = [
   {
     name: 'find_mapping',
     description:
-      'Look up a symbol (class, method, or field) mapping between different mapping systems. Useful for translating between intermediary, yarn, and mojmap names.',
+      'Look up a symbol (class, method, or field) mapping between different mapping systems. Translates between official (obfuscated), intermediary, yarn, and mojmap names. Use "official" for obfuscated names like "a", "b", "c".',
     inputSchema: {
       type: 'object',
       properties: {
@@ -254,13 +258,15 @@ export const tools = [
         },
         sourceMapping: {
           type: 'string',
-          enum: ['yarn', 'mojmap', 'intermediary'],
-          description: 'Source mapping type',
+          enum: ['yarn', 'mojmap', 'intermediary', 'official'],
+          description:
+            'Source mapping type: official (obfuscated), intermediary (stable IDs), yarn (community names), mojmap (Mojang names)',
         },
         targetMapping: {
           type: 'string',
-          enum: ['yarn', 'mojmap', 'intermediary'],
-          description: 'Target mapping type',
+          enum: ['yarn', 'mojmap', 'intermediary', 'official'],
+          description:
+            'Target mapping type: official (obfuscated), intermediary (stable IDs), yarn (community names), mojmap (Mojang names)',
         },
       },
       required: ['symbol', 'version', 'sourceMapping', 'targetMapping'],

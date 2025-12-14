@@ -27,11 +27,10 @@
       "Bash(java -jar:*)",
       "Bash(head:*)",
       "Bash(npx vitest:*)",
-      "Bash(git reset:*)"
+      "Bash(git reset:*)",
+      "Bash(npx tsx:*)"
     ]
   },
   "enableAllProjectMcpServers": true,
-  "enabledMcpjsonServers": [
-    "minecraft-dev"
-  ]
+  "enabledMcpjsonServers": ["minecraft-dev"]
 }

@@ -147,4 +147,147 @@ describe(`Manual: Minecraft ${TEST_VERSION} Legacy Support`, () => {
       expect(blocks.entries['minecraft:stone']).toBeDefined();
     }, 300000);
   });
+
+  describe('Mapping Lookups', () => {
+    /**
+     * Tests mapping lookup functionality for this version.
+     * Covers single-file lookups and two-step bridge lookups.
+     */
+
+    it('should lookup intermediary → yarn class mapping', async () => {
+      const mappingService = getMappingService();
+
+      // class_1297 is the intermediary name for Entity
+      const result = await mappingService.lookupMapping(
+        TEST_VERSION,
+        'net/minecraft/class_1297',
+        'intermediary',
+        'yarn',
+      );
+
+      expect(result.found).toBe(true);
+      expect(result.type).toBe('class');
+      expect(result.target).toContain('Entity');
+    }, 60000);
+
+    it('should lookup yarn → intermediary class mapping', async () => {
+      const mappingService = getMappingService();
+
+      const result = await mappingService.lookupMapping(
+        TEST_VERSION,
+        'net/minecraft/entity/Entity',
+        'yarn',
+        'intermediary',
+      );
+
+      expect(result.found).toBe(true);
+      expect(result.type).toBe('class');
+      expect(result.target).toContain('class_');
+    }, 60000);
+
+    it('should lookup intermediary → mojmap class mapping', async () => {
+      const mappingService = getMappingService();
+
+      const result = await mappingService.lookupMapping(
+        TEST_VERSION,
+        'net/minecraft/class_1297',
+        'intermediary',
+        'mojmap',
+      );
+
+      expect(result.found).toBe(true);
+      expect(result.type).toBe('class');
+      expect(result.target).toContain('Entity');
+    }, 60000);
+
+    it('should lookup mojmap → intermediary class mapping', async () => {
+      const mappingService = getMappingService();
+
+      const result = await mappingService.lookupMapping(
+        TEST_VERSION,
+        'net/minecraft/world/entity/Entity',
+        'mojmap',
+        'intermediary',
+      );
+
+      expect(result.found).toBe(true);
+      expect(result.type).toBe('class');
+      expect(result.target).toContain('class_');
+    }, 60000);
+
+    it('should lookup intermediary → official class mapping', async () => {
+      const mappingService = getMappingService();
+
+      const result = await mappingService.lookupMapping(
+        TEST_VERSION,
+        'net/minecraft/class_1297',
+        'intermediary',
+        'official',
+      );
+
+      expect(result.found).toBe(true);
+      expect(result.type).toBe('class');
+      expect(result.target).toBeDefined();
+      // Obfuscated names are typically short
+      expect(result.target?.length).toBeLessThan(50);
+    }, 60000);
+
+    it('should lookup official → intermediary class mapping', async () => {
+      const mappingService = getMappingService();
+
+      // First get an obfuscated name
+      const intResult = await mappingService.lookupMapping(
+        TEST_VERSION,
+        'net/minecraft/class_1297',
+        'intermediary',
+        'official',
+      );
+
+      expect(intResult.found).toBe(true);
+      const obfuscatedName = intResult.target as string;
+
+      // Now lookup back to intermediary
+      const result = await mappingService.lookupMapping(
+        TEST_VERSION,
+        obfuscatedName,
+        'official',
+        'intermediary',
+      );
+
+      expect(result.found).toBe(true);
+      expect(result.type).toBe('class');
+      expect(result.target).toContain('class_1297');
+    }, 60000);
+
+    it('should lookup yarn → mojmap (two-step bridge)', async () => {
+      const mappingService = getMappingService();
+
+      const result = await mappingService.lookupMapping(
+        TEST_VERSION,
+        'net/minecraft/entity/Entity',
+        'yarn',
+        'mojmap',
+      );
+
+      expect(result.found).toBe(true);
+      expect(result.type).toBe('class');
+      // Mojmap uses net/minecraft/world/entity/Entity
+      expect(result.target).toContain('Entity');
+    }, 120000);
+
+    it('should lookup mojmap → yarn (two-step bridge)', async () => {
+      const mappingService = getMappingService();
+
+      const result = await mappingService.lookupMapping(
+        TEST_VERSION,
+        'net/minecraft/world/entity/Entity',
+        'mojmap',
+        'yarn',
+      );
+
+      expect(result.found).toBe(true);
+      expect(result.type).toBe('class');
+      expect(result.target).toContain('Entity');
+    }, 120000);
+  });
 });

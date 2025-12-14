@@ -61,8 +61,12 @@ export interface Library {
 
 /**
  * Mapping types
+ * - 'official': Obfuscated names (e.g., 'a', 'b', 'c')
+ * - 'intermediary': Fabric's stable intermediate names (e.g., 'class_1234', 'method_5678')
+ * - 'yarn': Fabric community human-readable names
+ * - 'mojmap': Official Mojang human-readable names
  */
-export type MappingType = 'yarn' | 'mojmap' | 'intermediary';
+export type MappingType = 'yarn' | 'mojmap' | 'intermediary' | 'official';
 
 /**
  * Tiny mapping entry (simplified)
