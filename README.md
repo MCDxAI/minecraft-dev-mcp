@@ -148,7 +148,9 @@ Add to your Claude Desktop config file:
 
 </div>
 
-**NPM Installation:**
+<div align="center">
+  <h3>NPM Installation</h3>
+</div>
 
 ```json
 {
@@ -160,7 +162,9 @@ Add to your Claude Desktop config file:
 }
 ```
 
-**Source Installation:**
+<div align="center">
+  <h3>Source Installation</h3>
+</div>
 
 ```json
 {
@@ -304,7 +308,9 @@ Get decompiled source code for a specific Minecraft class.
 
 </div>
 
-**Example:**
+<div align="center">
+  <h3>Example</h3>
+</div>
 
 ```json
 {
@@ -347,7 +353,9 @@ Decompile an entire Minecraft version (runs once, then cached).
 
 </div>
 
-**Example:**
+<div align="center">
+  <h3>Example</h3>
+</div>
 
 ```json
 {
@@ -364,7 +372,9 @@ Decompile an entire Minecraft version (runs once, then cached).
   <p>List available and cached Minecraft versions.</p>
 </div>
 
-**Returns:**
+<div align="center">
+  <h3>Returns</h3>
+</div>
 
 ```json
 {
@@ -402,7 +412,9 @@ Get Minecraft registry data (blocks, items, entities, etc.).
 
 </div>
 
-**Example:**
+<div align="center">
+  <h3>Example</h3>
+</div>
 
 ```json
 {
@@ -455,7 +467,9 @@ Remap Fabric mod JARs from intermediary to human-readable mappings.
 
 </div>
 
-**Example:**
+<div align="center">
+  <h3>Example</h3>
+</div>
 
 ```json
 {
@@ -504,7 +518,9 @@ Look up symbol mappings between different mapping systems.
 
 </div>
 
-**Example:**
+<div align="center">
+  <h3>Example</h3>
+</div>
 
 ```json
 {
@@ -558,7 +574,9 @@ Search decompiled Minecraft source code using regex patterns.
 
 </div>
 
-**Example:**
+<div align="center">
+  <h3>Example</h3>
+</div>
 
 ```json
 {
@@ -608,7 +626,9 @@ Compare two Minecraft versions to find differences.
 
 </div>
 
-**Example:**
+<div align="center">
+  <h3>Example</h3>
+</div>
 
 ```json
 {
@@ -652,7 +672,9 @@ Analyze and validate Mixin code against Minecraft source.
 
 </div>
 
-**Example:**
+<div align="center">
+  <h3>Example</h3>
+</div>
 
 ```json
 {
@@ -695,7 +717,9 @@ Validate Fabric Access Widener files against Minecraft source.
 
 </div>
 
-**Example:**
+<div align="center">
+  <h3>Example</h3>
+</div>
 
 ```json
 {
@@ -747,7 +771,9 @@ Compare versions with detailed AST-level analysis.
 
 </div>
 
-**Example:**
+<div align="center">
+  <h3>Example</h3>
+</div>
 
 ```json
 {
@@ -786,7 +812,9 @@ Create a full-text search index for fast searching.
 
 </div>
 
-**Example:**
+<div align="center">
+  <h3>Example</h3>
+</div>
 
 ```json
 {
@@ -838,7 +866,9 @@ Fast full-text search using pre-built index (requires index_minecraft_version fi
 
 </div>
 
-**Example:**
+<div align="center">
+  <h3>Example</h3>
+</div>
 
 ```json
 {
@@ -873,7 +903,9 @@ Get documentation for Minecraft classes and concepts.
 
 </div>
 
-**Example:**
+<div align="center">
+  <h3>Example</h3>
+</div>
 
 ```json
 {
@@ -904,7 +936,9 @@ Search for documentation across all Minecraft/Fabric topics.
 
 </div>
 
-**Example:**
+<div align="center">
+  <h3>Example</h3>
+</div>
 
 ```json
 {
@@ -959,7 +993,9 @@ Analyze third-party mod JARs to extract comprehensive metadata.
 
 </div>
 
-**Example:**
+<div align="center">
+  <h3>Example</h3>
+</div>
 
 ```json
 {
@@ -1002,7 +1038,9 @@ All data is cached in a platform-specific directory:
 
 </div>
 
-**Cache Layout:**
+<div align="center">
+  <h3>Cache Layout</h3>
+</div>
 
 <div align="center">
 <table>
@@ -1049,10 +1087,30 @@ All data is cached in a platform-specific directory:
 </table>
 </div>
 
-**Cache Size:**
-- ~400-500 MB per Minecraft version (JAR + mappings + decompiled source)
-- ~50-100 MB per search index (optional, created on-demand with index_minecraft_version)
-- Vineflower + tiny-remapper: ~1 MB (one-time download)
+<div align="center">
+  <h3>Cache Size</h3>
+</div>
+
+<div align="center">
+<table>
+  <tr>
+    <th>Component</th>
+    <th>Size</th>
+  </tr>
+  <tr>
+    <td><b>Minecraft Version</b></td>
+    <td>~400-500 MB per version (JAR + mappings + decompiled source)</td>
+  </tr>
+  <tr>
+    <td><b>Search Index</b></td>
+    <td>~50-100 MB per index (optional, created on-demand with index_minecraft_version)</td>
+  </tr>
+  <tr>
+    <td><b>Decompiler Tools</b></td>
+    <td>~1 MB for Vineflower + tiny-remapper (one-time download)</td>
+  </tr>
+</table>
+</div>
 
 <div align="center">
   <h2>Technology Stack</h2>
@@ -1128,12 +1186,35 @@ All data is cached in a platform-specific directory:
   </tr>
 </table>
 
-**Important Notes:**
-- **1.21.11** is the last obfuscated Minecraft version
-- **Yarn mappings discontinued** after 1.21.11 (obfuscation removal makes them unnecessary)
-- **Future versions (26.1+)** ship with official deobfuscated code
-- Tested on: **1.19.4**, **1.20.1**, **1.21.10**, **1.21.11** (latest)
+</div>
 
+<div align="center">
+  <h3>Important Notes</h3>
+</div>
+
+<div align="center">
+<table>
+  <tr>
+    <th>Topic</th>
+    <th>Details</th>
+  </tr>
+  <tr>
+    <td><b>Last Obfuscated Version</b></td>
+    <td>1.21.11 is the last obfuscated Minecraft version</td>
+  </tr>
+  <tr>
+    <td><b>Yarn Mapping Status</b></td>
+    <td>Discontinued after 1.21.11 (obfuscation removal makes them unnecessary)</td>
+  </tr>
+  <tr>
+    <td><b>Future Versions</b></td>
+    <td>Versions 26.1+ ship with official deobfuscated code</td>
+  </tr>
+  <tr>
+    <td><b>Tested Versions</b></td>
+    <td>1.19.4, 1.20.1, 1.21.10, 1.21.11 (latest)</td>
+  </tr>
+</table>
 </div>
 
 <div align="center">
@@ -1161,7 +1242,9 @@ All data is cached in a platform-specific directory:
 </table>
 </div>
 
-**Example:**
+<div align="center">
+  <h3>Example</h3>
+</div>
 
 ```json
 {
@@ -1220,9 +1303,11 @@ When you request source code for the first time:
     <td>Return requested class source code</td>
     <td>Instant</td>
   </tr>
+  <tr>
+    <td><b>Total</b></td>
+    <td colspan="2">~5 minutes first time</td>
+  </tr>
 </table>
-
-**Total:** ~5 minutes first time
 
 </div>
 
@@ -1250,9 +1335,11 @@ When you request another class from the same version:
     <td>Return class source code</td>
     <td>Instant</td>
   </tr>
+  <tr>
+    <td><b>Total</b></td>
+    <td colspan="2">~50ms (instant)</td>
+  </tr>
 </table>
-
-**Total:** ~50ms (instant)
 
 </div>
 
