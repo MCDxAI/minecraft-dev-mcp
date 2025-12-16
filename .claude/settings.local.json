@@ -33,9 +33,12 @@
       "Bash(git remote get-url:*)",
       "Skill(readme-generator)",
       "Skill(repo-sweep)",
-      "Bash(git check-ignore:*)"
+      "Bash(git check-ignore:*)",
+      "Bash(del REMAINING_WORK.md)"
     ]
   },
   "enableAllProjectMcpServers": true,
-  "enabledMcpjsonServers": ["minecraft-dev"]
+  "enabledMcpjsonServers": [
+    "minecraft-dev"
+  ]
 }

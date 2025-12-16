@@ -57,6 +57,7 @@ export const paths = {
   mappings: () => join(getCacheDir(), 'mappings'),
   remapped: () => join(getCacheDir(), 'remapped'),
   decompiled: () => join(getCacheDir(), 'decompiled'),
+  decompiledMods: () => join(getCacheDir(), 'decompiled-mods'),
   registry: () => join(getCacheDir(), 'registry'),
   resources: () => join(getCacheDir(), 'resources'),
   database: () => join(getCacheDir(), 'cache.db'),
@@ -142,4 +143,11 @@ export function classNameToPath(className: string): string {
  */
 export function pathToClassName(filePath: string): string {
   return filePath.replace(/\//g, '.').replace(/\.java$/, '');
+}
+
+/**
+ * Get decompiled mod source path for a specific mod ID, version, and mapping
+ */
+export function getDecompiledModPath(modId: string, modVersion: string, mapping: string): string {
+  return join(paths.decompiledMods(), modId, modVersion, mapping);
 }

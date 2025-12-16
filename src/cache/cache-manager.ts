@@ -2,7 +2,13 @@ import { existsSync } from 'node:fs';
 import type { MappingType } from '../types/minecraft.js';
 import { ensureDir } from '../utils/file-utils.js';
 import { logger } from '../utils/logger.js';
-import { getDecompiledPath, getRemappedJarPath, getServerJarPath, paths } from '../utils/paths.js';
+import {
+  getDecompiledModPath,
+  getDecompiledPath,
+  getRemappedJarPath,
+  getServerJarPath,
+  paths,
+} from '../utils/paths.js';
 import { getDatabase } from './database.js';
 
 export class CacheManager {
@@ -17,6 +23,7 @@ export class CacheManager {
     ensureDir(paths.mappings());
     ensureDir(paths.remapped());
     ensureDir(paths.decompiled());
+    ensureDir(paths.decompiledMods());
     ensureDir(paths.registry());
     ensureDir(paths.resources());
   }
@@ -173,6 +180,58 @@ export class CacheManager {
    */
   failJob(jobId: number, error: string): void {
     this.db.updateJobStatus(jobId, 'failed', undefined, error);
+  }
+
+  /**
+   * Check if decompiled mod source exists
+   */
+  hasDecompiledModSource(modId: string, modVersion: string, mapping: MappingType): boolean {
+    const path = getDecompiledModPath(modId, modVersion, mapping);
+    return existsSync(path);
+  }
+
+  /**
+   * Get decompiled mod source path
+   */
+  getDecompiledModSourcePath(modId: string, modVersion: string, mapping: MappingType): string {
+    return getDecompiledModPath(modId, modVersion, mapping);
+  }
+
+  /**
+   * Create or get mod decompile job
+   */
+  getOrCreateModJob(
+    modId: string,
+    modVersion: string,
+    mapping: MappingType,
+    jarPath: string,
+  ): number {
+    const existing = this.db.getModJob(modId, modVersion, mapping);
+    if (existing) {
+      return existing.id;
+    }
+    return this.db.createModJob(modId, modVersion, mapping, jarPath);
+  }
+
+  /**
+   * Update mod decompile job progress
+   */
+  updateModJobProgress(jobId: number, progress: number): void {
+    this.db.updateModJobStatus(jobId, 'running', progress);
+  }
+
+  /**
+   * Mark mod job as completed
+   */
+  completeModJob(jobId: number): void {
+    this.db.updateModJobStatus(jobId, 'completed', 100);
+  }
+
+  /**
+   * Mark mod job as failed
+   */
+  failModJob(jobId: number, error: string): void {
+    this.db.updateModJobStatus(jobId, 'failed', undefined, error);
   }
 }
 

@@ -8,8 +8,8 @@ This is a **Model Context Protocol (MCP) server** that provides AI assistants wi
 
 ## Release Status
 
-- Phase 1 & 2 complete (core services, remap/decompile/search/compare) as of 2025-12-06; 29 integration tests pass end-to-end.
-- Phase 3 focus: third-party mod analysis; missing piece is decompiling remapped mod JARs (see TODO below).
+- **Phase 1 & 2 complete** (core services, remap/decompile/search/compare) as of 2025-12-06; 29 integration tests pass end-to-end.
+- **Phase 3 complete** (third-party mod analysis) as of 2025-12-15; includes full mod decompilation, search, and indexing capabilities with WSL support.
 
 ## Architecture
 
@@ -309,6 +309,10 @@ The code should work automatically, but be aware:
 
 ### Phase 3 Tools (Mod Analysis)
 16. **`analyze_mod_jar`** - Analyze third-party mod JAR files
+17. **`decompile_mod_jar`** - Decompile mod JARs to readable Java source
+18. **`search_mod_code`** - Search decompiled mod source code
+19. **`index_mod`** - Create full-text search index for mod source
+20. **`search_mod_indexed`** - Fast FTS5 search on indexed mod source
 
 #### `analyze_mod_jar` Tool
 
@@ -357,32 +361,106 @@ Analyzes third-party mod JARs without requiring Java. Performs:
 - `ModClass`: Class metadata including mixin detection
 - `ModMixinConfig`: Parsed mixin configuration
 
-## Missing Functionality / Future Enhancements
+### `mod-decompile-service.ts`
 
-### Mod JAR Decompilation (TODO)
+Decompiles mod JARs to readable Java source code. Supports both original (intermediary) and remapped JARs.
 
-**Current State**: The `remap_mod_jar` tool successfully remaps Fabric mod JARs from intermediary to human-readable mappings (yarn/mojmap), converting all Minecraft class references inside the JAR to use named mappings.
+**Key features**:
+1. **Auto-detection**: Automatically detects mod ID and version from JAR metadata
+2. **Caching**: Decompiled sources cached in `AppData/decompiled-mods/{modId}/{modVersion}/{mapping}/`
+3. **Progress tracking**: Database-backed job tracking with progress updates
+4. **VineFlower integration**: Reuses same decompiler as Minecraft decompilation
+5. **WSL compatibility**: Full support for WSL and Windows path formats
 
-**Missing**: There is no tool to **decompile the remapped JAR** to readable source code.
+**Workflow**:
+1. `remap_mod_jar` - Remap mod JAR from intermediary → yarn/mojmap (optional, can skip if JAR already remapped)
+2. `decompile_mod_jar` - Decompile JAR to readable Java source
+3. `search_mod_code` OR `index_mod` + `search_mod_indexed` - Search through decompiled source
 
-**Current Workflow**:
-1. ✅ `remap_mod_jar` - Remap intermediary → yarn/mojmap (Minecraft class references)
-2. ❌ **Missing** - Decompile remapped JAR to readable Java source
-3. ✅ `analyze_mod_jar` - Extract metadata from JAR (works on original or remapped)
+#### `decompile_mod_jar` Tool
 
-**Desired Workflow**:
-1. `remap_mod_jar` - Remap the mod JAR
-2. `decompile_mod_jar` - Decompile remapped JAR using VineFlower (same as Minecraft decompilation)
-3. Browse/search decompiled mod source with human-readable Minecraft class names
+Decompiles a mod JAR file to readable Java source code.
 
-**Implementation Notes**:
-- Can reuse existing VineFlower integration from `decompile-service.ts`
-- Output structure: `AppData/minecraft-dev-mcp/decompiled-mods/{mod-id}/{version}/{mapping}/`
-- Tool name: `decompile_mod_jar` or add `decompile?: boolean` parameter to `remap_mod_jar`
-- Would enable full mod source code analysis for educational/compatibility purposes
+**Input**:
+```typescript
+{
+  jarPath: string;      // Path to mod JAR (WSL or Windows path)
+  mapping: 'yarn' | 'mojmap';  // Mapping type JAR uses
+  modId?: string;       // Optional, auto-detected if not provided
+  modVersion?: string;  // Optional, auto-detected if not provided
+}
+```
 
-**Use Cases**:
-- Understanding how other mods work for compatibility
-- Learning mod development techniques
-- Debugging mod interactions
-- Educational reference for Minecraft modding patterns
+**Output**: Decompiled source directory path, mod ID, and version
+
+**Example**:
+```
+decompile_mod_jar({ jarPath: "C:/mods/meteor-remapped-yarn.jar", mapping: "yarn" })
+```
+
+#### `search_mod_code` Tool
+
+Search for classes, methods, fields, or content in decompiled mod source code using regex patterns.
+
+**Input**:
+```typescript
+{
+  modId: string;
+  modVersion: string;
+  query: string;                    // Regex pattern or literal string
+  searchType: 'class' | 'method' | 'field' | 'content' | 'all';
+  mapping: 'yarn' | 'mojmap';
+  limit?: number;                   // Default: 50
+}
+```
+
+**Example**:
+```
+search_mod_code({ modId: "meteor-client", modVersion: "0.5.8", query: "onTick", searchType: "method", mapping: "yarn" })
+```
+
+#### `index_mod` Tool
+
+Creates a full-text search index for decompiled mod source code using SQLite FTS5.
+
+**Input**:
+```typescript
+{
+  modId: string;
+  modVersion: string;
+  mapping: 'yarn' | 'mojmap';
+  force?: boolean;  // Force re-indexing, default: false
+}
+```
+
+**Benefits**: Enables much faster searching via `search_mod_indexed` tool
+
+#### `search_mod_indexed` Tool
+
+Fast full-text search using pre-built mod index. Supports FTS5 syntax.
+
+**Input**:
+```typescript
+{
+  query: string;  // FTS5 syntax: AND, OR, NOT, "phrase", prefix*
+  modId: string;
+  modVersion: string;
+  mapping: 'yarn' | 'mojmap';
+  types?: Array<'class' | 'method' | 'field'>;  // Optional filter
+  limit?: number;  // Default: 100
+}
+```
+
+**Example**:
+```
+search_mod_indexed({ query: "packet AND send", modId: "meteor-client", modVersion: "0.5.8", mapping: "yarn" })
+```
+
+## Mod Analysis Use Cases
+
+The Phase 3 mod tools enable:
+- **Compatibility analysis**: Understanding how other mods work for interop
+- **Learning**: Studying mod development techniques from popular mods
+- **Debugging**: Investigating mod interactions and conflicts
+- **Educational reference**: Exploring Minecraft modding patterns
+- **Code search**: Finding specific implementations across mod codebases

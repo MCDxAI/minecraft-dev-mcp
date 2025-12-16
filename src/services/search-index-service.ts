@@ -12,7 +12,7 @@ import { getCacheManager } from '../cache/cache-manager.js';
 import type { MappingType, RankedSearchResult } from '../types/minecraft.js';
 import { SearchIndexError } from '../utils/errors.js';
 import { logger } from '../utils/logger.js';
-import { getCacheDir, getDecompiledPath } from '../utils/paths.js';
+import { getCacheDir, getDecompiledModPath, getDecompiledPath } from '../utils/paths.js';
 
 /**
  * Search Index Service using SQLite FTS5
@@ -92,6 +92,34 @@ export class SearchIndexService {
         indexed_at INTEGER NOT NULL,
         file_count INTEGER NOT NULL,
         PRIMARY KEY (version, mapping)
+      );
+    `);
+
+    // Mod search index table with FTS5
+    db.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS mod_search_index USING fts5(
+        mod_id,
+        mod_version,
+        mapping,
+        class_name,
+        file_path,
+        entry_type,
+        symbol,
+        context,
+        line,
+        tokenize='porter unicode61'
+      );
+    `);
+
+    // Metadata table to track indexed mods
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS mod_index_metadata (
+        mod_id TEXT NOT NULL,
+        mod_version TEXT NOT NULL,
+        mapping TEXT NOT NULL,
+        indexed_at INTEGER NOT NULL,
+        file_count INTEGER NOT NULL,
+        PRIMARY KEY (mod_id, mod_version, mapping)
       );
     `);
   }
@@ -630,6 +658,315 @@ export class SearchIndexService {
       indexedAt: new Date(row.indexed_at),
       fileCount: row.file_count,
     }));
+  }
+
+  /**
+   * Check if a mod is already indexed
+   */
+  isModIndexed(modId: string, modVersion: string, mapping: MappingType): boolean {
+    const db = this.getDb();
+    const result = db
+      .prepare(
+        'SELECT 1 FROM mod_index_metadata WHERE mod_id = ? AND mod_version = ? AND mapping = ?',
+      )
+      .get(modId, modVersion, mapping);
+    return !!result;
+  }
+
+  /**
+   * Index a decompiled mod
+   */
+  async indexMod(
+    modId: string,
+    modVersion: string,
+    mapping: MappingType,
+    onProgress?: (current: number, total: number, className: string) => void,
+  ): Promise<{ fileCount: number; duration: number }> {
+    const startTime = Date.now();
+    const cacheManager = getCacheManager();
+
+    // Check if decompiled mod source exists
+    if (!cacheManager.hasDecompiledModSource(modId, modVersion, mapping)) {
+      throw new SearchIndexError(
+        `${modId}:${modVersion}`,
+        mapping,
+        'Mod source not decompiled. Run decompile_mod_jar first.',
+      );
+    }
+
+    const decompiledPath = getDecompiledModPath(modId, modVersion, mapping);
+    logger.info(`Indexing mod ${modId}:${modVersion}/${mapping} from ${decompiledPath}`);
+
+    // Clear existing index for this mod
+    this.clearModIndex(modId, modVersion, mapping);
+
+    const db = this.getDb();
+    const insertStmt = db.prepare(`
+      INSERT INTO mod_search_index (mod_id, mod_version, mapping, class_name, file_path, entry_type, symbol, context, line)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    // Collect all Java files
+    const files: string[] = [];
+    const walkDir = (dir: string) => {
+      try {
+        const entries = readdirSync(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          const fullPath = join(dir, entry.name);
+          if (entry.isDirectory()) {
+            walkDir(fullPath);
+          } else if (entry.name.endsWith('.java')) {
+            files.push(fullPath);
+          }
+        }
+      } catch (error) {
+        logger.warn(`Failed to read directory ${dir}:`, error);
+      }
+    };
+
+    walkDir(decompiledPath);
+
+    // Index files in a transaction for better performance
+    const insertMany = db.transaction(
+      (
+        entries: Array<{
+          className: string;
+          filePath: string;
+          entryType: string;
+          symbol: string;
+          context: string;
+          line: number;
+        }>,
+      ) => {
+        for (const entry of entries) {
+          insertStmt.run(
+            modId,
+            modVersion,
+            mapping,
+            entry.className,
+            entry.filePath,
+            entry.entryType,
+            entry.symbol,
+            entry.context,
+            entry.line,
+          );
+        }
+      },
+    );
+
+    let processedCount = 0;
+
+    // Process files in batches
+    const batchSize = 100;
+    for (let i = 0; i < files.length; i += batchSize) {
+      const batch = files.slice(i, Math.min(i + batchSize, files.length));
+      const entries: Array<{
+        className: string;
+        filePath: string;
+        entryType: string;
+        symbol: string;
+        context: string;
+        line: number;
+      }> = [];
+
+      for (const filePath of batch) {
+        const relativePath = filePath.substring(decompiledPath.length + 1);
+        const className = relativePath.replace(/\//g, '.').replace(/\.java$/, '');
+
+        try {
+          const source = readFileSync(filePath, 'utf8');
+
+          // Index class name
+          entries.push({
+            className,
+            filePath: relativePath,
+            entryType: 'class',
+            symbol: className,
+            context: className,
+            line: 1,
+          });
+
+          // Extract and index methods and fields
+          const members = this.extractMembers(source);
+          for (const member of members) {
+            entries.push({
+              className,
+              filePath: relativePath,
+              entryType: member.type,
+              symbol: member.name,
+              context: member.context,
+              line: member.line,
+            });
+          }
+
+          processedCount++;
+          if (onProgress) {
+            onProgress(processedCount, files.length, className);
+          }
+        } catch (error) {
+          logger.warn(`Failed to index ${relativePath}:`, error);
+        }
+      }
+
+      // Insert batch
+      insertMany(entries);
+    }
+
+    // Update metadata
+    db.prepare(`
+      INSERT OR REPLACE INTO mod_index_metadata (mod_id, mod_version, mapping, indexed_at, file_count)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(modId, modVersion, mapping, Date.now(), files.length);
+
+    const duration = Date.now() - startTime;
+    logger.info(`Indexed ${files.length} files in ${duration}ms`);
+
+    return { fileCount: files.length, duration };
+  }
+
+  /**
+   * Clear index for a specific mod
+   */
+  clearModIndex(modId: string, modVersion: string, mapping: MappingType): void {
+    const db = this.getDb();
+    db.prepare('DELETE FROM mod_search_index WHERE mod_id = ? AND mod_version = ? AND mapping = ?').run(
+      modId,
+      modVersion,
+      mapping,
+    );
+    db.prepare('DELETE FROM mod_index_metadata WHERE mod_id = ? AND mod_version = ? AND mapping = ?').run(
+      modId,
+      modVersion,
+      mapping,
+    );
+  }
+
+  /**
+   * Search mod index using FTS5 full-text search
+   */
+  searchMod(
+    query: string,
+    modId: string,
+    modVersion: string,
+    mapping: MappingType,
+    options: {
+      types?: Array<'class' | 'method' | 'field'>;
+      limit?: number;
+      includeContext?: boolean;
+    } = {},
+  ): RankedSearchResult[] {
+    const { types, limit = 100, includeContext = true } = options;
+
+    // Check if indexed
+    if (!this.isModIndexed(modId, modVersion, mapping)) {
+      throw new SearchIndexError(
+        `${modId}:${modVersion}`,
+        mapping,
+        'Mod not indexed. Run index_mod first.',
+      );
+    }
+
+    const db = this.getDb();
+
+    // Sanitize query
+    const sanitizedQuery = query
+      .replace(/['"]/g, '')
+      .replace(/[*]/g, ' ')
+      .trim();
+
+    if (!sanitizedQuery) {
+      return [];
+    }
+
+    // Build WHERE clause for type filtering
+    let typeFilter = '';
+    if (types && types.length > 0) {
+      const typeList = types.map((t) => `'${t}'`).join(', ');
+      typeFilter = `AND entry_type IN (${typeList})`;
+    }
+
+    // Build search query with BM25 ranking
+    const searchQuery = sanitizedQuery
+      .split(/\s+/)
+      .filter((term) => term.length > 0)
+      .join(' OR ');
+
+    let sql = `
+      SELECT
+        mod_id,
+        mod_version,
+        mapping,
+        class_name,
+        file_path,
+        entry_type,
+        symbol,
+        context,
+        line,
+        rank
+      FROM mod_search_index
+      WHERE mod_search_index MATCH ?
+        AND mod_id = ?
+        AND mod_version = ?
+        AND mapping = ?
+        ${typeFilter}
+      ORDER BY rank
+      LIMIT ?
+    `;
+
+    // If not including context, search only in symbol
+    if (!includeContext) {
+      sql = `
+        SELECT
+          mod_id,
+          mod_version,
+          mapping,
+          class_name,
+          file_path,
+          entry_type,
+          symbol,
+          context,
+          line,
+          rank
+        FROM mod_search_index
+        WHERE symbol MATCH ?
+          AND mod_id = ?
+          AND mod_version = ?
+          AND mapping = ?
+          ${typeFilter}
+        ORDER BY rank
+        LIMIT ?
+      `;
+    }
+
+    try {
+      const rows = db.prepare(sql).all(searchQuery, modId, modVersion, mapping, limit) as Array<{
+        mod_id: string;
+        mod_version: string;
+        mapping: string;
+        class_name: string;
+        file_path: string;
+        entry_type: string;
+        symbol: string;
+        context: string;
+        line: number;
+        rank: number;
+      }>;
+
+      return rows.map((row) => ({
+        entryType: row.entry_type as 'class' | 'method' | 'field',
+        className: row.class_name,
+        symbol: row.symbol,
+        filePath: row.file_path,
+        line: row.line,
+        context: row.context,
+        version: `${row.mod_id}:${row.mod_version}`,
+        mapping: row.mapping,
+        score: -row.rank, // FTS5 rank is negative, convert to positive score
+      }));
+    } catch (error) {
+      logger.error('FTS5 search failed:', error);
+      return [];
+    }
   }
 
   /**

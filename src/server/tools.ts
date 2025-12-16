@@ -9,6 +9,7 @@ import { getDocumentationService } from '../services/documentation-service.js';
 import { getMappingService } from '../services/mapping-service.js';
 import { getMixinService } from '../services/mixin-service.js';
 import { getModAnalyzerService } from '../services/mod-analyzer-service.js';
+import { getModDecompileService } from '../services/mod-decompile-service.js';
 import { getRegistryService } from '../services/registry-service.js';
 import { getRemapService } from '../services/remap-service.js';
 import { getSearchIndexService } from '../services/search-index-service.js';
@@ -46,7 +47,10 @@ const RemapModJarSchema = z.object({
   outputJar: z
     .string()
     .describe('Path for the output remapped JAR file (supports WSL and Windows paths)'),
-  mcVersion: z.string().describe('Minecraft version the mod is for'),
+  mcVersion: z
+    .string()
+    .optional()
+    .describe('Minecraft version the mod is for (auto-detected from mod metadata if not provided)'),
   toMapping: z.enum(['yarn', 'mojmap']).describe('Target mapping type'),
 });
 
@@ -147,6 +151,60 @@ const AnalyzeModJarSchema = z.object({
     .describe('Include raw metadata files (default: false)'),
 });
 
+const DecompileModJarSchema = z.object({
+  jarPath: z
+    .string()
+    .describe(
+      'Path to the mod JAR file to decompile (can be original or remapped, supports WSL and Windows paths)',
+    ),
+  mapping: z
+    .enum(['yarn', 'mojmap'])
+    .describe('Mapping type the JAR uses (yarn or mojmap). Should match how the JAR was remapped.'),
+  modId: z
+    .string()
+    .optional()
+    .describe('Mod ID (auto-detected from JAR if not provided)'),
+  modVersion: z
+    .string()
+    .optional()
+    .describe('Mod version (auto-detected from JAR if not provided)'),
+});
+
+const SearchModCodeSchema = z.object({
+  modId: z.string().describe('Mod ID (from analyze_mod_jar or decompile_mod_jar)'),
+  modVersion: z.string().describe('Mod version'),
+  query: z.string().describe('Search query (regex pattern or literal string)'),
+  searchType: z
+    .enum(['class', 'method', 'field', 'content', 'all'])
+    .describe('Type of search: class name, method, field, content, or all'),
+  mapping: z.enum(['yarn', 'mojmap']).describe('Mapping type used when decompiling'),
+  limit: z.number().optional().describe('Maximum number of results (default: 50)'),
+});
+
+const IndexModSchema = z.object({
+  modId: z.string().describe('Mod ID (from decompile_mod_jar)'),
+  modVersion: z.string().describe('Mod version'),
+  mapping: z.enum(['yarn', 'mojmap']).describe('Mapping type used when decompiling'),
+  force: z
+    .boolean()
+    .optional()
+    .describe('Force re-indexing even if already indexed (default: false)'),
+});
+
+const SearchModIndexedSchema = z.object({
+  query: z
+    .string()
+    .describe('Search query (supports FTS5 syntax: AND, OR, NOT, "phrase", prefix*)'),
+  modId: z.string().describe('Mod ID'),
+  modVersion: z.string().describe('Mod version'),
+  mapping: z.enum(['yarn', 'mojmap']).describe('Mapping type'),
+  types: z
+    .array(z.enum(['class', 'method', 'field']))
+    .optional()
+    .describe('Entry types to search (omit for all types)'),
+  limit: z.number().optional().describe('Maximum results (default: 100)'),
+});
+
 // Tool definitions
 export const tools = [
   {
@@ -243,7 +301,7 @@ export const tools = [
         },
         mcVersion: {
           type: 'string',
-          description: 'Minecraft version the mod is for',
+          description: 'Minecraft version the mod is for (auto-detected from mod metadata if not provided)',
         },
         toMapping: {
           type: 'string',
@@ -251,7 +309,7 @@ export const tools = [
           description: 'Target mapping type',
         },
       },
-      required: ['inputJar', 'outputJar', 'mcVersion', 'toMapping'],
+      required: ['inputJar', 'outputJar', 'toMapping'],
     },
   },
   {
@@ -537,6 +595,140 @@ export const tools = [
       required: ['jarPath'],
     },
   },
+  {
+    name: 'decompile_mod_jar',
+    description:
+      'Decompile a mod JAR file to readable Java source code. The JAR can be either the original mod JAR (with intermediary mappings) or a remapped JAR (from remap_mod_jar). Decompiled sources are cached in AppData/decompiled-mods/{modId}/{modVersion}/{mapping}/. Mod ID and version are auto-detected from the JAR metadata if not provided. Supports both WSL (/mnt/c/...) and Windows (C:\\...) paths.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        jarPath: {
+          type: 'string',
+          description:
+            'Path to the mod JAR file (original or remapped, supports WSL and Windows paths)',
+        },
+        mapping: {
+          type: 'string',
+          enum: ['yarn', 'mojmap'],
+          description: 'Mapping type the JAR uses (should match how it was remapped)',
+        },
+        modId: {
+          type: 'string',
+          description: 'Mod ID (optional, auto-detected if not provided)',
+        },
+        modVersion: {
+          type: 'string',
+          description: 'Mod version (optional, auto-detected if not provided)',
+        },
+      },
+      required: ['jarPath', 'mapping'],
+    },
+  },
+  {
+    name: 'search_mod_code',
+    description:
+      'Search for classes, methods, fields, or content in decompiled mod source code. Supports regex patterns. Use after decompile_mod_jar to search through a decompiled mod.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        modId: {
+          type: 'string',
+          description: 'Mod ID (from analyze_mod_jar or decompile_mod_jar)',
+        },
+        modVersion: {
+          type: 'string',
+          description: 'Mod version',
+        },
+        query: {
+          type: 'string',
+          description: 'Search query (regex pattern or literal string)',
+        },
+        searchType: {
+          type: 'string',
+          enum: ['class', 'method', 'field', 'content', 'all'],
+          description: 'Type of search to perform',
+        },
+        mapping: {
+          type: 'string',
+          enum: ['yarn', 'mojmap'],
+          description: 'Mapping type used when decompiling',
+        },
+        limit: {
+          type: 'number',
+          description: 'Maximum number of results (default: 50)',
+        },
+      },
+      required: ['modId', 'modVersion', 'query', 'searchType', 'mapping'],
+    },
+  },
+  {
+    name: 'index_mod',
+    description:
+      'Create a full-text search index for decompiled mod source code. Enables fast searching with search_mod_indexed tool. Use after decompile_mod_jar.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        modId: {
+          type: 'string',
+          description: 'Mod ID',
+        },
+        modVersion: {
+          type: 'string',
+          description: 'Mod version',
+        },
+        mapping: {
+          type: 'string',
+          enum: ['yarn', 'mojmap'],
+          description: 'Mapping type used when decompiling',
+        },
+        force: {
+          type: 'boolean',
+          description: 'Force re-indexing even if already indexed (default: false)',
+        },
+      },
+      required: ['modId', 'modVersion', 'mapping'],
+    },
+  },
+  {
+    name: 'search_mod_indexed',
+    description:
+      'Fast full-text search using pre-built mod index. Much faster than search_mod_code for large queries. Requires index_mod first. Supports FTS5 syntax: AND, OR, NOT, "phrase", prefix*.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Search query (supports FTS5 syntax: AND, OR, NOT, "phrase", prefix*)',
+        },
+        modId: {
+          type: 'string',
+          description: 'Mod ID',
+        },
+        modVersion: {
+          type: 'string',
+          description: 'Mod version',
+        },
+        mapping: {
+          type: 'string',
+          enum: ['yarn', 'mojmap'],
+          description: 'Mapping type',
+        },
+        types: {
+          type: 'array',
+          items: {
+            type: 'string',
+            enum: ['class', 'method', 'field'],
+          },
+          description: 'Entry types to search (omit for all types)',
+        },
+        limit: {
+          type: 'number',
+          description: 'Maximum results (default: 100)',
+        },
+      },
+      required: ['query', 'modId', 'modVersion', 'mapping'],
+    },
+  },
 ];
 
 // Tool handlers
@@ -697,7 +889,7 @@ export async function handleGetRegistryData(args: unknown) {
 
 // Handler for remap_mod_jar
 export async function handleRemapModJar(args: unknown) {
-  const { inputJar, outputJar, mcVersion, toMapping } = RemapModJarSchema.parse(args);
+  const { inputJar, outputJar, mcVersion: providedMcVersion, toMapping } = RemapModJarSchema.parse(args);
 
   // Normalize paths for cross-platform support (WSL/Windows)
   const normalizedInputJar = normalizePath(inputJar);
@@ -706,11 +898,31 @@ export async function handleRemapModJar(args: unknown) {
   logger.info(`Remapping mod JAR: ${normalizedInputJar} -> ${normalizedOutputJar}`);
 
   const remapService = getRemapService();
+  const modAnalyzerService = getModAnalyzerService();
 
   try {
     // Check input file exists
     if (!existsSync(normalizedInputJar)) {
       throw new Error(`Input JAR not found: ${normalizedInputJar}`);
+    }
+
+    // Auto-detect Minecraft version if not provided
+    let mcVersion = providedMcVersion;
+    if (!mcVersion) {
+      logger.info('Minecraft version not provided, attempting auto-detection from mod metadata');
+      const analysis = await modAnalyzerService.analyzeMod(normalizedInputJar);
+
+      // Find minecraft dependency
+      const minecraftDep = analysis.dependencies?.find(dep => dep.modId === 'minecraft');
+      if (!minecraftDep || !minecraftDep.versionRange) {
+        throw new Error(
+          'Could not auto-detect Minecraft version from mod metadata. Please provide mcVersion parameter explicitly.'
+        );
+      }
+
+      // Extract version from range (e.g., "1.21.11" from "1.21.11" or ">=1.21.0")
+      mcVersion = minecraftDep.versionRange.replace(/[><=~^]/g, '').trim();
+      logger.info(`Auto-detected Minecraft version: ${mcVersion}`);
     }
 
     const result = await remapService.remapModJar(
@@ -724,7 +936,17 @@ export async function handleRemapModJar(args: unknown) {
       content: [
         {
           type: 'text',
-          text: `Mod JAR remapped successfully!\n\nInput: ${inputJar}\nOutput: ${result}\nMinecraft Version: ${mcVersion}\nMapping: ${toMapping}`,
+          text: JSON.stringify(
+            {
+              success: true,
+              outputJar: result,
+              inputJar,
+              mcVersion,
+              mapping: toMapping,
+            },
+            null,
+            2,
+          ),
         },
       ],
     };
@@ -1518,6 +1740,347 @@ export async function handleAnalyzeModJar(args: unknown) {
   }
 }
 
+// Handler for decompile_mod_jar
+export async function handleDecompileModJar(args: unknown) {
+  const { jarPath, mapping, modId, modVersion } = DecompileModJarSchema.parse(args);
+
+  // Normalize path for cross-platform support (WSL/Windows)
+  const normalizedJarPath = normalizePath(jarPath);
+
+  logger.info(
+    `Decompiling mod JAR: ${normalizedJarPath} with ${mapping} mappings${modId ? ` (${modId}${modVersion ? `:${modVersion}` : ''})` : ''}`,
+  );
+
+  const modDecompileService = getModDecompileService();
+
+  try {
+    // Check file exists
+    if (!existsSync(normalizedJarPath)) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error: JAR file not found: ${normalizedJarPath}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+
+    const result = await modDecompileService.decompileMod(
+      normalizedJarPath,
+      mapping as MappingType,
+      modId,
+      modVersion,
+      (current, total) => {
+        if (current % 500 === 0 || current === total) {
+          logger.info(`Decompiling: ${current}/${total} classes (${((current / total) * 100).toFixed(1)}%)`);
+        }
+      },
+    );
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(
+            {
+              success: true,
+              modId: result.modId,
+              modVersion: result.modVersion,
+              mapping,
+              outputDirectory: result.outputDir,
+              message: `Successfully decompiled ${result.modId} v${result.modVersion} to ${result.outputDir}`,
+            },
+            null,
+            2,
+          ),
+        },
+      ],
+    };
+  } catch (error) {
+    logger.error('Failed to decompile mod JAR', error);
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+}
+
+// Handler for index_mod
+export async function handleIndexMod(args: unknown) {
+  const { modId, modVersion, mapping, force = false } = IndexModSchema.parse(args);
+
+  logger.info(`Indexing mod ${modId}:${modVersion}/${mapping}`);
+
+  const searchIndexService = getSearchIndexService();
+
+  try {
+    // Check if already indexed
+    if (!force && searchIndexService.isModIndexed(modId, modVersion, mapping as MappingType)) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(
+              {
+                success: true,
+                message: `Mod ${modId} v${modVersion} with ${mapping} mappings is already indexed. Use force=true to re-index.`,
+                modId,
+                modVersion,
+                mapping,
+              },
+              null,
+              2,
+            ),
+          },
+        ],
+      };
+    }
+
+    const result = await searchIndexService.indexMod(
+      modId,
+      modVersion,
+      mapping as MappingType,
+      (current, total, className) => {
+        if (current % 100 === 0 || current === total) {
+          logger.info(
+            `Indexing: ${current}/${total} files (${((current / total) * 100).toFixed(1)}%) - ${className}`,
+          );
+        }
+      },
+    );
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(
+            {
+              success: true,
+              modId,
+              modVersion,
+              mapping,
+              filesIndexed: result.fileCount,
+              durationMs: result.duration,
+              message: `Successfully indexed ${result.fileCount} files in ${result.duration}ms`,
+            },
+            null,
+            2,
+          ),
+        },
+      ],
+    };
+  } catch (error) {
+    logger.error('Failed to index mod', error);
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+}
+
+// Handler for search_mod_indexed
+export async function handleSearchModIndexed(args: unknown) {
+  const { query, modId, modVersion, mapping, types, limit = 100 } =
+    SearchModIndexedSchema.parse(args);
+
+  logger.info(`Searching mod indexed: ${query} in ${modId}:${modVersion}/${mapping}`);
+
+  const searchIndexService = getSearchIndexService();
+
+  try {
+    const results = searchIndexService.searchMod(query, modId, modVersion, mapping as MappingType, {
+      types: types as Array<'class' | 'method' | 'field'> | undefined,
+      limit,
+    });
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(
+            {
+              query,
+              modId,
+              modVersion,
+              mapping,
+              count: results.length,
+              results,
+            },
+            null,
+            2,
+          ),
+        },
+      ],
+    };
+  } catch (error) {
+    logger.error('Failed to search mod indexed', error);
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+}
+
+// Handler for search_mod_code
+export async function handleSearchModCode(args: unknown) {
+  const { modId, modVersion, query, searchType, mapping, limit = 50 } =
+    SearchModCodeSchema.parse(args);
+
+  logger.info(`Searching mod code: ${query} (${searchType}) in ${modId}:${modVersion}/${mapping}`);
+
+  const cacheManager = getCacheManager();
+
+  try {
+    // Check if decompiled mod source exists
+    if (!cacheManager.hasDecompiledModSource(modId, modVersion, mapping)) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Decompiled source not found for mod ${modId} v${modVersion} with ${mapping} mappings. Run decompile_mod_jar first.`,
+          },
+        ],
+        isError: true,
+      };
+    }
+
+    const decompiledPath = cacheManager.getDecompiledModSourcePath(modId, modVersion, mapping);
+    const results: Array<{
+      type: string;
+      name: string;
+      file: string;
+      line?: number;
+      context?: string;
+    }> = [];
+
+    // Recursively search files
+    const searchDir = (dir: string) => {
+      if (results.length >= limit) return;
+
+      const entries = readdirSync(dir, { withFileTypes: true });
+
+      for (const entry of entries) {
+        if (results.length >= limit) break;
+
+        const fullPath = join(dir, entry.name);
+
+        if (entry.isDirectory()) {
+          searchDir(fullPath);
+        } else if (entry.name.endsWith('.java')) {
+          const relativePath = relative(decompiledPath, fullPath);
+          const className = relativePath.replace(/\//g, '.').replace(/\.java$/, '');
+
+          // For class search, match against file name
+          if (searchType === 'class' || searchType === 'all') {
+            const regex = new RegExp(query, 'i');
+            if (regex.test(entry.name.replace('.java', ''))) {
+              results.push({
+                type: 'class',
+                name: className,
+                file: relativePath,
+              });
+            }
+          }
+
+          // For content/method/field search, read file and search
+          if (
+            (searchType === 'content' ||
+              searchType === 'method' ||
+              searchType === 'field' ||
+              searchType === 'all') &&
+            results.length < limit
+          ) {
+            const content = readFileSync(fullPath, 'utf8');
+            const lines = content.split('\n');
+            const regex = new RegExp(query, 'gi');
+
+            for (let i = 0; i < lines.length && results.length < limit; i++) {
+              const line = lines[i];
+              if (regex.test(line)) {
+                // Determine type based on line content
+                let type = 'content';
+                if (
+                  searchType === 'method' ||
+                  (searchType === 'all' && /\s+(public|private|protected)\s+.*\(/.test(line))
+                ) {
+                  type = 'method';
+                } else if (
+                  searchType === 'field' ||
+                  (searchType === 'all' &&
+                    /\s+(public|private|protected)\s+\w+\s+\w+\s*[;=]/.test(line))
+                ) {
+                  type = 'field';
+                }
+
+                if (searchType === 'all' || type === searchType || searchType === 'content') {
+                  results.push({
+                    type,
+                    name: className,
+                    file: relativePath,
+                    line: i + 1,
+                    context: line.trim().substring(0, 200),
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
+    };
+
+    searchDir(decompiledPath);
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(
+            {
+              query,
+              searchType,
+              modId,
+              modVersion,
+              mapping,
+              count: results.length,
+              results,
+            },
+            null,
+            2,
+          ),
+        },
+      ],
+    };
+  } catch (error) {
+    logger.error('Failed to search mod code', error);
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+}
+
 // Tool router
 export async function handleToolCall(name: string, args: unknown) {
   switch (name) {
@@ -1555,6 +2118,14 @@ export async function handleToolCall(name: string, args: unknown) {
     // Phase 3 tools
     case 'analyze_mod_jar':
       return handleAnalyzeModJar(args);
+    case 'decompile_mod_jar':
+      return handleDecompileModJar(args);
+    case 'search_mod_code':
+      return handleSearchModCode(args);
+    case 'index_mod':
+      return handleIndexMod(args);
+    case 'search_mod_indexed':
+      return handleSearchModIndexed(args);
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
