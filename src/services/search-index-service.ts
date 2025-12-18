@@ -829,16 +829,12 @@ export class SearchIndexService {
    */
   clearModIndex(modId: string, modVersion: string, mapping: MappingType): void {
     const db = this.getDb();
-    db.prepare('DELETE FROM mod_search_index WHERE mod_id = ? AND mod_version = ? AND mapping = ?').run(
-      modId,
-      modVersion,
-      mapping,
-    );
-    db.prepare('DELETE FROM mod_index_metadata WHERE mod_id = ? AND mod_version = ? AND mapping = ?').run(
-      modId,
-      modVersion,
-      mapping,
-    );
+    db.prepare(
+      'DELETE FROM mod_search_index WHERE mod_id = ? AND mod_version = ? AND mapping = ?',
+    ).run(modId, modVersion, mapping);
+    db.prepare(
+      'DELETE FROM mod_index_metadata WHERE mod_id = ? AND mod_version = ? AND mapping = ?',
+    ).run(modId, modVersion, mapping);
   }
 
   /**
@@ -869,10 +865,7 @@ export class SearchIndexService {
     const db = this.getDb();
 
     // Sanitize query
-    const sanitizedQuery = query
-      .replace(/['"]/g, '')
-      .replace(/[*]/g, ' ')
-      .trim();
+    const sanitizedQuery = query.replace(/['"]/g, '').replace(/[*]/g, ' ').trim();
 
     if (!sanitizedQuery) {
       return [];

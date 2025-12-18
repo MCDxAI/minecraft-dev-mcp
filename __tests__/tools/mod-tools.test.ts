@@ -19,10 +19,12 @@ const METEOR_REMAPPED_PATH = join(dirname(METEOR_JAR_PATH), 'meteor-client-remap
 /**
  * Mod Analysis MCP Tool Tests
  *
- * Tests the analyze_mod_jar MCP tool:
- * - Analyzes Fabric mod JARs
- * - Returns comprehensive mod information
- * - Handles various analysis options
+ * Tests the mod analysis, remapping, decompilation, and search tools:
+ * - analyze_mod_jar: Analyzes Fabric/Forge/Quilt mod JARs
+ * - remap_mod_jar: Remaps mods to human-readable mappings
+ * - decompile_mod_jar: Decompiles mod JARs to readable source
+ * - search_mod_code / search_mod_indexed: Search decompiled mod code
+ * - index_mod: Create FTS5 search index for mod source
  */
 
 describe('MCP Tool: analyze_mod_jar', () => {
@@ -298,7 +300,7 @@ describe('MCP Tool: search_mod_indexed', () => {
     const result = JSON.parse(response.content[0].text);
     expect(result.results).toBeDefined();
     // All results should be methods
-    result.results.forEach((r: any) => {
+    result.results.forEach((r: { entryType: string }) => {
       expect(r.entryType).toBe('method');
     });
   }, 30000);

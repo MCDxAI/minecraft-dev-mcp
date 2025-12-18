@@ -26,6 +26,26 @@ const GetMinecraftSourceSchema = z.object({
     .string()
     .describe('Fully qualified class name (e.g., "net.minecraft.world.entity.Entity")'),
   mapping: z.enum(['yarn', 'mojmap']).describe('Mapping type to use'),
+  startLine: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe('Starting line number (1-indexed, inclusive). If omitted, starts from line 1.'),
+  endLine: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe('Ending line number (1-indexed, inclusive). If omitted, returns until end of file.'),
+  maxLines: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe(
+      'Maximum number of lines to return. Applied after startLine/endLine filtering. Useful for limiting large responses.',
+    ),
 });
 
 const DecompileMinecraftVersionSchema = z.object({
@@ -160,10 +180,7 @@ const DecompileModJarSchema = z.object({
   mapping: z
     .enum(['yarn', 'mojmap'])
     .describe('Mapping type the JAR uses (yarn or mojmap). Should match how the JAR was remapped.'),
-  modId: z
-    .string()
-    .optional()
-    .describe('Mod ID (auto-detected from JAR if not provided)'),
+  modId: z.string().optional().describe('Mod ID (auto-detected from JAR if not provided)'),
   modVersion: z
     .string()
     .optional()
@@ -226,6 +243,21 @@ export const tools = [
           type: 'string',
           enum: ['yarn', 'mojmap'],
           description: 'Mapping type to use',
+        },
+        startLine: {
+          type: 'number',
+          description:
+            'Starting line number (1-indexed, inclusive). If omitted, starts from line 1.',
+        },
+        endLine: {
+          type: 'number',
+          description:
+            'Ending line number (1-indexed, inclusive). If omitted, returns until end of file.',
+        },
+        maxLines: {
+          type: 'number',
+          description:
+            'Maximum number of lines to return. Applied after startLine/endLine filtering. Useful for limiting large responses.',
         },
       },
       required: ['version', 'className', 'mapping'],
@@ -301,7 +333,8 @@ export const tools = [
         },
         mcVersion: {
           type: 'string',
-          description: 'Minecraft version the mod is for (auto-detected from mod metadata if not provided)',
+          description:
+            'Minecraft version the mod is for (auto-detected from mod metadata if not provided)',
         },
         toMapping: {
           type: 'string',
@@ -733,24 +766,69 @@ export const tools = [
 
 // Tool handlers
 export async function handleGetMinecraftSource(args: unknown) {
-  const { version, className, mapping } = GetMinecraftSourceSchema.parse(args);
+  const { version, className, mapping, startLine, endLine, maxLines } =
+    GetMinecraftSourceSchema.parse(args);
 
-  logger.info(`Getting source for ${className} in ${version} (${mapping})`);
+  logger.info(
+    `Getting source for ${className} in ${version} (${mapping})${startLine ? ` from line ${startLine}` : ''}${endLine ? ` to line ${endLine}` : ''}${maxLines ? ` max ${maxLines} lines` : ''}`,
+  );
 
   const decompileService = getDecompileService();
 
   try {
-    const source = await decompileService.getClassSource(
+    const fullSource = await decompileService.getClassSource(
       version,
       className,
       mapping as MappingType,
     );
 
+    // Apply line filtering if any filter parameters are provided
+    let filteredSource = fullSource;
+    let totalLines = 0;
+    let returnedLines = 0;
+    let actualStartLine = 1;
+    let actualEndLine = 0;
+
+    if (startLine !== undefined || endLine !== undefined || maxLines !== undefined) {
+      const lines = fullSource.split('\n');
+      totalLines = lines.length;
+
+      // Calculate effective start and end indices (convert to 0-indexed)
+      const effectiveStart = startLine !== undefined ? Math.max(0, startLine - 1) : 0;
+      const effectiveEnd = endLine !== undefined ? Math.min(lines.length, endLine) : lines.length;
+
+      // Slice the lines based on startLine and endLine
+      let filteredLines = lines.slice(effectiveStart, effectiveEnd);
+
+      // Apply maxLines limit if specified
+      if (maxLines !== undefined && filteredLines.length > maxLines) {
+        filteredLines = filteredLines.slice(0, maxLines);
+      }
+
+      filteredSource = filteredLines.join('\n');
+      returnedLines = filteredLines.length;
+      actualStartLine = effectiveStart + 1;
+      actualEndLine = effectiveStart + returnedLines;
+
+      // Build metadata header for filtered results
+      const metadataLines = [
+        `// Source: ${className}`,
+        `// Version: ${version} (${mapping})`,
+        `// Lines: ${actualStartLine}-${actualEndLine} of ${totalLines} total`,
+        startLine !== undefined || endLine !== undefined || maxLines !== undefined
+          ? `// Filtered: startLine=${startLine ?? 1}, endLine=${endLine ?? totalLines}, maxLines=${maxLines ?? 'none'}`
+          : '',
+        '',
+      ].filter(Boolean);
+
+      filteredSource = metadataLines.join('\n') + filteredSource;
+    }
+
     return {
       content: [
         {
           type: 'text',
-          text: source,
+          text: filteredSource,
         },
       ],
     };
@@ -889,7 +967,12 @@ export async function handleGetRegistryData(args: unknown) {
 
 // Handler for remap_mod_jar
 export async function handleRemapModJar(args: unknown) {
-  const { inputJar, outputJar, mcVersion: providedMcVersion, toMapping } = RemapModJarSchema.parse(args);
+  const {
+    inputJar,
+    outputJar,
+    mcVersion: providedMcVersion,
+    toMapping,
+  } = RemapModJarSchema.parse(args);
 
   // Normalize paths for cross-platform support (WSL/Windows)
   const normalizedInputJar = normalizePath(inputJar);
@@ -913,10 +996,10 @@ export async function handleRemapModJar(args: unknown) {
       const analysis = await modAnalyzerService.analyzeMod(normalizedInputJar);
 
       // Find minecraft dependency
-      const minecraftDep = analysis.dependencies?.find(dep => dep.modId === 'minecraft');
+      const minecraftDep = analysis.dependencies?.find((dep) => dep.modId === 'minecraft');
       if (!minecraftDep || !minecraftDep.versionRange) {
         throw new Error(
-          'Could not auto-detect Minecraft version from mod metadata. Please provide mcVersion parameter explicitly.'
+          'Could not auto-detect Minecraft version from mod metadata. Please provide mcVersion parameter explicitly.',
         );
       }
 
@@ -1774,7 +1857,9 @@ export async function handleDecompileModJar(args: unknown) {
       modVersion,
       (current, total) => {
         if (current % 500 === 0 || current === total) {
-          logger.info(`Decompiling: ${current}/${total} classes (${((current / total) * 100).toFixed(1)}%)`);
+          logger.info(
+            `Decompiling: ${current}/${total} classes (${((current / total) * 100).toFixed(1)}%)`,
+          );
         }
       },
     );
@@ -1892,8 +1977,14 @@ export async function handleIndexMod(args: unknown) {
 
 // Handler for search_mod_indexed
 export async function handleSearchModIndexed(args: unknown) {
-  const { query, modId, modVersion, mapping, types, limit = 100 } =
-    SearchModIndexedSchema.parse(args);
+  const {
+    query,
+    modId,
+    modVersion,
+    mapping,
+    types,
+    limit = 100,
+  } = SearchModIndexedSchema.parse(args);
 
   logger.info(`Searching mod indexed: ${query} in ${modId}:${modVersion}/${mapping}`);
 
@@ -1940,8 +2031,14 @@ export async function handleSearchModIndexed(args: unknown) {
 
 // Handler for search_mod_code
 export async function handleSearchModCode(args: unknown) {
-  const { modId, modVersion, query, searchType, mapping, limit = 50 } =
-    SearchModCodeSchema.parse(args);
+  const {
+    modId,
+    modVersion,
+    query,
+    searchType,
+    mapping,
+    limit = 50,
+  } = SearchModCodeSchema.parse(args);
 
   logger.info(`Searching mod code: ${query} (${searchType}) in ${modId}:${modVersion}/${mapping}`);
 

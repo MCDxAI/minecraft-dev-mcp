@@ -7,6 +7,7 @@ import {
   handleCompareVersions,
   handleDecompileMinecraftVersion,
   handleFindMapping,
+  handleGetMinecraftSource,
   handleGetRegistryData,
   handleListMinecraftVersions,
   handleRemapModJar,
@@ -19,15 +20,8 @@ import { METEOR_JAR_PATH, TEST_MAPPING, TEST_VERSION } from '../test-constants.j
 /**
  * Core MCP Tools Integration Tests
  *
- * Tests the Phase 1 MCP tools:
- * - get_minecraft_source
- * - decompile_minecraft_version
- * - list_minecraft_versions
- * - get_registry_data
- * - remap_mod_jar
- * - find_mapping
- * - search_minecraft_code
- * - compare_versions
+ * Tests for Minecraft source retrieval, decompilation, search,
+ * mapping lookup, version comparison, and registry data tools.
  */
 
 describe('MCP Tools Integration', () => {
@@ -73,28 +67,50 @@ describe('MCP Tools Integration', () => {
   }, 30000);
 });
 
-describe('New MCP Tools', () => {
+describe('Tool Registration', () => {
   beforeAll(async () => {
     // Verify Java is available (required for tools)
     await verifyJavaVersion(17);
   }, 30000);
 
-  it('should have all Phase 1 tools defined (8 tools)', () => {
+  it('should have all 20 MCP tools defined', () => {
     expect(tools).toBeDefined();
     expect(Array.isArray(tools)).toBe(true);
-    // Phase 1: 8 tools, Phase 2: 7 tools, Phase 3: 1 tool = 16 total
-    expect(tools.length).toBe(16);
+    expect(tools.length).toBe(20);
 
     const toolNames = tools.map((t) => t.name);
-    // Phase 1 tools
+
+    // Source and decompilation tools
     expect(toolNames).toContain('get_minecraft_source');
     expect(toolNames).toContain('decompile_minecraft_version');
     expect(toolNames).toContain('list_minecraft_versions');
+
+    // Registry and mapping tools
     expect(toolNames).toContain('get_registry_data');
-    expect(toolNames).toContain('remap_mod_jar');
     expect(toolNames).toContain('find_mapping');
+    expect(toolNames).toContain('remap_mod_jar');
+
+    // Search and comparison tools
     expect(toolNames).toContain('search_minecraft_code');
     expect(toolNames).toContain('compare_versions');
+    expect(toolNames).toContain('compare_versions_detailed');
+    expect(toolNames).toContain('index_minecraft_version');
+    expect(toolNames).toContain('search_indexed');
+
+    // Validation tools
+    expect(toolNames).toContain('analyze_mixin');
+    expect(toolNames).toContain('validate_access_widener');
+
+    // Documentation tools
+    expect(toolNames).toContain('get_documentation');
+    expect(toolNames).toContain('search_documentation');
+
+    // Mod analysis tools
+    expect(toolNames).toContain('analyze_mod_jar');
+    expect(toolNames).toContain('decompile_mod_jar');
+    expect(toolNames).toContain('search_mod_code');
+    expect(toolNames).toContain('index_mod');
+    expect(toolNames).toContain('search_mod_indexed');
   });
 
   it('should search for classes in decompiled code', async () => {
@@ -304,6 +320,197 @@ describe('Version and Registry Tools', () => {
   }, 300000);
 });
 
+describe('Source Filtering', () => {
+  beforeAll(async () => {
+    await verifyJavaVersion(17);
+  }, 30000);
+
+  it('should return full source when no filtering parameters are provided', async () => {
+    // Use Entity class which is typically large (1000+ lines)
+    const result = await handleGetMinecraftSource({
+      version: TEST_VERSION,
+      className: 'net.minecraft.entity.Entity',
+      mapping: TEST_MAPPING,
+    });
+
+    expect(result).toBeDefined();
+    expect(result.content).toBeDefined();
+    expect(result.content.length).toBe(1);
+
+    const source = result.content[0].text;
+    expect(source).toContain('package net.minecraft.entity');
+    expect(source).toContain('class Entity');
+
+    // Entity should be a large class (1000+ lines)
+    const lineCount = source.split('\n').length;
+    expect(lineCount).toBeGreaterThan(1000);
+  }, 600000);
+
+  it('should filter source using startLine parameter', async () => {
+    // First get the full source to know total lines
+    const fullResult = await handleGetMinecraftSource({
+      version: TEST_VERSION,
+      className: 'net.minecraft.entity.Entity',
+      mapping: TEST_MAPPING,
+    });
+    const fullSource = fullResult.content[0].text;
+    const totalLines = fullSource.split('\n').length;
+
+    // Now get filtered source starting from line 100
+    const filteredResult = await handleGetMinecraftSource({
+      version: TEST_VERSION,
+      className: 'net.minecraft.entity.Entity',
+      mapping: TEST_MAPPING,
+      startLine: 100,
+    });
+
+    expect(filteredResult).toBeDefined();
+    const filteredSource = filteredResult.content[0].text;
+
+    // Filtered result should have metadata header
+    expect(filteredSource).toContain('// Source: net.minecraft.entity.Entity');
+    expect(filteredSource).toContain('// Lines: 100-');
+    expect(filteredSource).toContain(`of ${totalLines} total`);
+
+    // Filtered source should be significantly smaller than full source
+    const filteredLines = filteredSource.split('\n').length;
+    expect(filteredLines).toBeLessThan(totalLines);
+    // Should have approximately totalLines - 99 lines + 4 metadata lines
+    expect(filteredLines).toBeLessThan(totalLines - 90);
+  }, 60000);
+
+  it('should filter source using endLine parameter', async () => {
+    const result = await handleGetMinecraftSource({
+      version: TEST_VERSION,
+      className: 'net.minecraft.entity.Entity',
+      mapping: TEST_MAPPING,
+      endLine: 50,
+    });
+
+    expect(result).toBeDefined();
+    const source = result.content[0].text;
+
+    // Should have metadata header
+    expect(source).toContain('// Lines: 1-50 of');
+
+    // Source should be limited (50 content lines + ~4 metadata lines)
+    const lineCount = source.split('\n').length;
+    expect(lineCount).toBeLessThan(60);
+    expect(lineCount).toBeGreaterThan(50); // At least 50 lines of content
+  }, 60000);
+
+  it('should filter source using startLine and endLine together', async () => {
+    const result = await handleGetMinecraftSource({
+      version: TEST_VERSION,
+      className: 'net.minecraft.entity.Entity',
+      mapping: TEST_MAPPING,
+      startLine: 100,
+      endLine: 150,
+    });
+
+    expect(result).toBeDefined();
+    const source = result.content[0].text;
+
+    // Should have metadata header showing line range
+    expect(source).toContain('// Lines: 100-150 of');
+
+    // Should have exactly 51 content lines (100-150 inclusive) + metadata
+    const lineCount = source.split('\n').length;
+    expect(lineCount).toBeLessThan(60); // 51 + ~4 metadata
+    expect(lineCount).toBeGreaterThan(50);
+  }, 60000);
+
+  it('should filter source using maxLines parameter', async () => {
+    const result = await handleGetMinecraftSource({
+      version: TEST_VERSION,
+      className: 'net.minecraft.entity.Entity',
+      mapping: TEST_MAPPING,
+      maxLines: 25,
+    });
+
+    expect(result).toBeDefined();
+    const source = result.content[0].text;
+
+    // Should have metadata header
+    expect(source).toContain('// Lines: 1-25 of');
+    expect(source).toContain('maxLines=25');
+
+    // Should have max 25 content lines + metadata
+    const lineCount = source.split('\n').length;
+    expect(lineCount).toBeLessThan(35); // 25 + ~4 metadata + buffer
+  }, 60000);
+
+  it('should apply maxLines after startLine/endLine filtering', async () => {
+    const result = await handleGetMinecraftSource({
+      version: TEST_VERSION,
+      className: 'net.minecraft.entity.Entity',
+      mapping: TEST_MAPPING,
+      startLine: 100,
+      endLine: 200,
+      maxLines: 10,
+    });
+
+    expect(result).toBeDefined();
+    const source = result.content[0].text;
+
+    // Should show lines 100-109 (10 lines starting from 100)
+    expect(source).toContain('// Lines: 100-109 of');
+    expect(source).toContain('maxLines=10');
+
+    // Should have exactly 10 content lines + metadata
+    const lineCount = source.split('\n').length;
+    expect(lineCount).toBeLessThan(20); // 10 + ~4 metadata + buffer
+  }, 60000);
+
+  it('should not add metadata header when no filtering parameters are used', async () => {
+    const result = await handleGetMinecraftSource({
+      version: TEST_VERSION,
+      className: 'net.minecraft.item.Item',
+      mapping: TEST_MAPPING,
+    });
+
+    expect(result).toBeDefined();
+    const source = result.content[0].text;
+
+    // Should NOT have metadata header when returning full source
+    expect(source).not.toContain('// Source:');
+    expect(source).not.toContain('// Lines:');
+
+    // Should start with package declaration
+    expect(source).toMatch(/^package net\.minecraft\.item/);
+  }, 60000);
+
+  it('should handle filtering on a large class to prevent token explosion', async () => {
+    // This is the critical test - ensuring large classes can be filtered
+    // to avoid 25k+ token responses
+
+    // Get full source length first
+    const fullResult = await handleGetMinecraftSource({
+      version: TEST_VERSION,
+      className: 'net.minecraft.entity.Entity',
+      mapping: TEST_MAPPING,
+    });
+    const fullLength = fullResult.content[0].text.length;
+
+    // Now get a small filtered portion
+    const filteredResult = await handleGetMinecraftSource({
+      version: TEST_VERSION,
+      className: 'net.minecraft.entity.Entity',
+      mapping: TEST_MAPPING,
+      startLine: 1,
+      maxLines: 100,
+    });
+    const filteredLength = filteredResult.content[0].text.length;
+
+    // Filtered result should be significantly smaller (at least 5x smaller)
+    expect(filteredLength).toBeLessThan(fullLength / 5);
+
+    // Verify we still get useful content
+    const filteredSource = filteredResult.content[0].text;
+    expect(filteredSource).toContain('package net.minecraft.entity');
+  }, 60000);
+});
+
 describe('Decompile and Remap Tools', () => {
   beforeAll(async () => {
     await verifyJavaVersion(17);
@@ -343,7 +550,7 @@ describe('Decompile and Remap Tools', () => {
       const result = await handleRemapModJar({
         inputJar: METEOR_JAR_PATH,
         outputJar: outputPath,
-        mcVersion: '1.21.10', // Match the mod's MC version
+        mcVersion: '1.21.11', // Match the mod's MC version
         toMapping: TEST_MAPPING,
       });
 
@@ -352,9 +559,10 @@ describe('Decompile and Remap Tools', () => {
       expect(result.content.length).toBe(1);
 
       const text = result.content[0].text;
-      // Should return success message
-      expect(text).toContain('remapped successfully');
-      expect(text).toContain(outputPath);
+      // Should return JSON success response
+      const data = JSON.parse(text);
+      expect(data.success).toBe(true);
+      expect(data.outputJar).toContain('remapped-test');
 
       // Verify output file was created
       expect(existsSync(outputPath)).toBe(true);

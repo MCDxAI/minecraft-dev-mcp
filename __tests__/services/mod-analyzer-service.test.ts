@@ -34,7 +34,7 @@ describe('ModAnalyzerService', () => {
     expect(result.metadata.id).toBe('meteor-client');
 
     // Version should match the version in fabric.mod.json
-    expect(result.metadata.version).toBe('1.21.10-32');
+    expect(result.metadata.version).toBe('1.21.11-4');
 
     // Should have a display name
     expect(result.metadata.name).toBe('Meteor Client');

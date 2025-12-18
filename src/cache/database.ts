@@ -242,12 +242,7 @@ class CacheDatabase {
     return stmt.get(modId, modVersion, mapping) as ModDecompileJob | undefined;
   }
 
-  createModJob(
-    modId: string,
-    modVersion: string,
-    mapping: MappingType,
-    jarPath: string,
-  ): number {
+  createModJob(modId: string, modVersion: string, mapping: MappingType, jarPath: string): number {
     const stmt = this.db.prepare(`
       INSERT INTO mod_decompile_jobs (mod_id, mod_version, mapping, jar_path, status, progress, started_at)
       VALUES (?, ?, ?, ?, 'pending', 0, ?)
@@ -285,7 +280,9 @@ class CacheDatabase {
       params.splice(1, 0, Date.now());
     }
 
-    const stmt = this.db.prepare(`UPDATE mod_decompile_jobs SET ${updates.join(', ')} WHERE id = ?`);
+    const stmt = this.db.prepare(
+      `UPDATE mod_decompile_jobs SET ${updates.join(', ')} WHERE id = ?`,
+    );
     stmt.run(...params);
   }
 

@@ -8,8 +8,8 @@ import { TEST_MAPPING, TEST_VERSION } from '../test-constants.js';
  * MCP Resources Tests
  *
  * Tests the MCP resource definitions and handlers for:
- * - Phase 1: Source code, mappings, registry, versions list
- * - Phase 2: Documentation, search index, topics
+ * - Source code, mappings, registry, versions list
+ * - Documentation, search index, topics
  */
 
 describe('MCP Resources', () => {
@@ -21,15 +21,21 @@ describe('MCP Resources', () => {
   it('should have resource templates defined', () => {
     expect(resourceTemplates).toBeDefined();
     expect(Array.isArray(resourceTemplates)).toBe(true);
-    // Phase 1: 4 templates, Phase 2: 4 templates = 8 total (Phase 3 has no resources)
     expect(resourceTemplates.length).toBe(8);
 
-    // Check Phase 1 templates are present
     const templateUris = resourceTemplates.map((t) => t.uriTemplate);
+
+    // Source and data templates
     expect(templateUris).toContain('minecraft://source/{version}/{mapping}/{className}');
     expect(templateUris).toContain('minecraft://mappings/{version}/{mapping}');
     expect(templateUris).toContain('minecraft://registry/{version}/{registryType}');
     expect(templateUris).toContain('minecraft://versions/list');
+
+    // Documentation and index templates
+    expect(templateUris).toContain('minecraft://docs/{className}');
+    expect(templateUris).toContain('minecraft://docs/topic/{topic}');
+    expect(templateUris).toContain('minecraft://index/{version}/{mapping}');
+    expect(templateUris).toContain('minecraft://index/list');
   });
 
   it('should have static resources defined', () => {
@@ -77,26 +83,29 @@ describe('MCP Resources', () => {
   }, 300000);
 });
 
-describe('Phase 2 Resources', () => {
-  it('should have Phase 2 resource templates defined', async () => {
+describe('Documentation and Index Resources', () => {
+  it('should have documentation and index templates defined', async () => {
     const { resourceTemplates } = await import('../../src/server/resources.js');
 
     expect(resourceTemplates).toBeDefined();
-    expect(resourceTemplates.length).toBe(8); // 4 Phase 1 + 4 Phase 2
+    expect(resourceTemplates.length).toBe(8);
 
     const templateUris = resourceTemplates.map((t) => t.uriTemplate);
-    // Phase 2 templates
+
+    // Documentation templates
     expect(templateUris).toContain('minecraft://docs/{className}');
     expect(templateUris).toContain('minecraft://docs/topic/{topic}');
+
+    // Index templates
     expect(templateUris).toContain('minecraft://index/{version}/{mapping}');
     expect(templateUris).toContain('minecraft://index/list');
   });
 
-  it('should have Phase 2 static resources defined', async () => {
+  it('should have static resources for documentation topics', async () => {
     const { resources } = await import('../../src/server/resources.js');
 
     expect(resources).toBeDefined();
-    expect(resources.length).toBe(4); // 1 Phase 1 + 3 Phase 2 (Phase 3 has no static resources)
+    expect(resources.length).toBe(4);
 
     const uris = resources.map((r) => r.uri);
     expect(uris).toContain('minecraft://index/list');

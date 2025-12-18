@@ -39,8 +39,11 @@ export class ModDecompileService {
       throw new Error(`Mod JAR not found at: ${normalizedJarPath}`);
     }
 
-    // Auto-detect mod ID and version if not provided
-    if (!modId || !modVersion) {
+    // Resolve final mod ID and version (auto-detect if not provided)
+    let finalModId = modId;
+    let finalModVersion = modVersion;
+
+    if (!finalModId || !finalModVersion) {
       logger.info('Auto-detecting mod metadata from JAR');
       const analysis = await this.modAnalyzer.analyzeMod(normalizedJarPath);
 
@@ -56,23 +59,30 @@ export class ModDecompileService {
         );
       }
 
-      modId = analysis.metadata.id;
-      modVersion = analysis.metadata.version;
-      logger.info(`Detected mod: ${modId} v${modVersion}`);
+      finalModId = analysis.metadata.id;
+      finalModVersion = analysis.metadata.version;
+      logger.info(`Detected mod: ${finalModId} v${finalModVersion}`);
     }
 
-    const outputDir = getDecompiledModPath(modId, modVersion, mapping);
+    const outputDir = getDecompiledModPath(finalModId, finalModVersion, mapping);
 
     // Check if already decompiled
-    if (this.cache.hasDecompiledModSource(modId, modVersion, mapping)) {
-      logger.info(`Mod ${modId} v${modVersion} with ${mapping} mappings already decompiled`);
-      return { outputDir, modId, modVersion };
+    if (this.cache.hasDecompiledModSource(finalModId, finalModVersion, mapping)) {
+      logger.info(
+        `Mod ${finalModId} v${finalModVersion} with ${mapping} mappings already decompiled`,
+      );
+      return { outputDir, modId: finalModId, modVersion: finalModVersion };
     }
 
-    logger.info(`Decompiling mod ${modId} v${modVersion} with ${mapping} mappings`);
+    logger.info(`Decompiling mod ${finalModId} v${finalModVersion} with ${mapping} mappings`);
 
     // Create or get decompile job
-    const jobId = this.cache.getOrCreateModJob(modId, modVersion, mapping, normalizedJarPath);
+    const jobId = this.cache.getOrCreateModJob(
+      finalModId,
+      finalModVersion,
+      mapping,
+      normalizedJarPath,
+    );
 
     try {
       // Decompile
@@ -102,7 +112,7 @@ export class ModDecompileService {
       this.cache.completeModJob(jobId);
       logger.info(`Mod decompilation complete: ${outputDir}`);
 
-      return { outputDir, modId, modVersion };
+      return { outputDir, modId: finalModId, modVersion: finalModVersion };
     } catch (error) {
       this.cache.failModJob(jobId, error instanceof Error ? error.message : 'Unknown error');
       throw error;
