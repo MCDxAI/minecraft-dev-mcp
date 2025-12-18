@@ -36,5 +36,8 @@ libraries/
 versions/
 logs/
 
-# AI reference materials
-ai_reference/
+# AI reference materials (ignore subdirectories but keep test JARs)
+ai_reference/FabricMod-Remapper/
+ai_reference/mojang2tiny/
+ai_reference/tiny-remapper/
+ai_reference/*-remapped-*.jar
