@@ -25,6 +25,7 @@ on:
       - 'tsconfig.json'
       - 'vitest.config.ts'
       - '.github/workflows/test.yml'
+  workflow_dispatch:
 
 jobs:
   test:
