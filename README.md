@@ -102,7 +102,7 @@
   <tr>
     <td><b>NPM (Recommended)</b></td>
     <td>
-      <pre>npm install -g @minecraft-dev/mcp-server</pre>
+      <pre>npm install -g @mcdxai/minecraft-dev-mcp</pre>
     </td>
   </tr>
   <tr>
@@ -122,7 +122,7 @@ npm run build</pre>
 </div>
 
 <div align="center">
-  <h2>1. Configure Claude Desktop</h2>
+  <h2>Claude Desktop Setup</h2>
 </div>
 
 <div align="center">
@@ -165,6 +165,21 @@ Add to your Claude Desktop config file:
 ```
 
 <div align="center">
+  <h3>NPX (No Installation)</h3>
+</div>
+
+```json
+{
+  "mcpServers": {
+    "minecraft-dev": {
+      "command": "npx",
+      "args": ["-y", "@mcdxai/minecraft-dev-mcp"]
+    }
+  }
+}
+```
+
+<div align="center">
   <h3>Source Installation</h3>
 </div>
 
@@ -180,15 +195,62 @@ Add to your Claude Desktop config file:
 ```
 
 <div align="center">
-  <h2>2. Restart Claude Desktop</h2>
-</div>
-
-<div align="center">
   <p>Restart Claude Desktop to load the MCP server.</p>
 </div>
 
+---
+
 <div align="center">
-  <h2>3. Start Using</h2>
+  <h2>Claude Code Setup</h2>
+</div>
+
+<div align="center">
+
+Add to `.claude/settings.local.json` in your project:
+
+</div>
+
+<div align="center">
+  <h3>Global Installation</h3>
+</div>
+
+```bash
+npm install -g @mcdxai/minecraft-dev-mcp
+```
+
+```json
+{
+  "mcpServers": {
+    "minecraft-dev": {
+      "command": "minecraft-dev-mcp"
+    }
+  }
+}
+```
+
+<div align="center">
+  <h3>NPX (No Installation)</h3>
+</div>
+
+```json
+{
+  "mcpServers": {
+    "minecraft-dev": {
+      "command": "npx",
+      "args": ["-y", "@mcdxai/minecraft-dev-mcp"]
+    }
+  }
+}
+```
+
+<div align="center">
+  <p>The MCP server will be available immediately in Claude Code.</p>
+</div>
+
+---
+
+<div align="center">
+  <h2>Start Using</h2>
 </div>
 
 <div align="center">

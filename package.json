@@ -1,5 +1,5 @@
 {
-  "name": "@minecraft-dev/mcp-server",
+  "name": "@mcdxai/minecraft-dev-mcp",
   "version": "1.0.0",
   "description": "MCP server for Minecraft mod development - decompile, remap, and explore Minecraft source code",
   "type": "module",
@@ -7,9 +7,15 @@
   "bin": {
     "minecraft-dev-mcp": "./dist/index.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
+    "prepublishOnly": "npm run clean && npm run build",
     "inspect": "npm run build && npx @modelcontextprotocol/inspector node dist/index.js",
     "inspect:dev": "npx @modelcontextprotocol/inspector tsx src/index.ts",
     "test": "vitest",
