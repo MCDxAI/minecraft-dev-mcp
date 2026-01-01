@@ -1,165 +1,16 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import AdmZip from 'adm-zip';
 import { getCacheManager } from '../cache/cache-manager.js';
 import { getFabricMaven } from '../downloaders/fabric-maven.js';
 import { getMojangDownloader } from '../downloaders/mojang-downloader.js';
-import { getMojang2Tiny } from '../java/mojang2tiny.js';
+import { getMappingIO } from '../java/mapping-io.js';
 import { parseTinyV2 } from '../parsers/tiny-v2.js';
 import type { MappingType } from '../types/minecraft.js';
 import { MappingNotFoundError } from '../utils/errors.js';
 import { ensureDir } from '../utils/file-utils.js';
 import { logger } from '../utils/logger.js';
-import { getMojmapConversionDir, getMojmapTinyPath } from '../utils/paths.js';
-
-/**
- * Convert Tiny v2 format to Tiny v1 format.
- *
- * mojang2tiny expects intermediary mappings in Tiny v1 format:
- *   v1\tofficial\tintermediary
- *   CLASS\ta\tnet/minecraft/class_1234
- *   FIELD\ta\tLjava/lang/String;\ta\tfield_5678
- *   METHOD\ta\t()V\ta\tmethod_9012
- *
- * But Fabric Maven provides Tiny v2 format:
- *   tiny\t2\t0\tofficial\tintermediary
- *   c\ta\tnet/minecraft/class_1234
- *   \tf\tLjava/lang/String;\ta\tfield_5678
- *   \tm\t()V\ta\tmethod_9012
- */
-function convertTinyV2ToV1(inputPath: string, outputPath: string): void {
-  const content = readFileSync(inputPath, 'utf8');
-  const lines = content.split('\n');
-  const outputLines: string[] = [];
-
-  let currentClass = '';
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-
-    if (i === 0) {
-      // Convert header: "tiny\t2\t0\tofficial\tintermediary" -> "v1\tofficial\tintermediary"
-      const parts = line.split('\t');
-      if (parts[0] === 'tiny' && parts[1] === '2') {
-        // Skip "tiny", "2", "0", take rest as namespaces
-        const namespaces = parts.slice(3).join('\t');
-        outputLines.push(`v1\t${namespaces}`);
-      } else {
-        // Already v1 or unknown format, pass through
-        outputLines.push(line);
-      }
-      continue;
-    }
-
-    // Convert class entries: "c\tobf\tintermediary" -> "CLASS\tobf\tintermediary"
-    if (line.startsWith('c\t')) {
-      const parts = line.split('\t');
-      currentClass = parts[1]; // Store obfuscated class name
-      outputLines.push(`CLASS\t${parts.slice(1).join('\t')}`);
-    }
-    // Convert field entries: "\tf\ttype\tobf\tintermediary" -> "FIELD\tclass\ttype\tobf\tintermediary"
-    else if (line.startsWith('\tf\t')) {
-      const parts = line.split('\t');
-      // parts: ['', 'f', type, obfName, intermediaryName]
-      if (parts.length >= 5) {
-        outputLines.push(`FIELD\t${currentClass}\t${parts[2]}\t${parts[3]}\t${parts[4]}`);
-      }
-    }
-    // Convert method entries: "\tm\tsig\tobf\tintermediary" -> "METHOD\tclass\tsig\tobf\tintermediary"
-    else if (line.startsWith('\tm\t')) {
-      const parts = line.split('\t');
-      // parts: ['', 'm', sig, obfName, intermediaryName]
-      if (parts.length >= 5) {
-        outputLines.push(`METHOD\t${currentClass}\t${parts[2]}\t${parts[3]}\t${parts[4]}`);
-      }
-    }
-    // Skip comments, nested content, and empty lines for v1 format
-    // (handled by not adding them to outputLines)
-  }
-
-  writeFileSync(outputPath, outputLines.join('\n'));
-  logger.info(`Converted Tiny v2 to v1 format: ${outputPath}`);
-}
-
-/**
- * Post-process mojang2tiny output to proper Tiny v2 format.
- *
- * mojang2tiny outputs an invalid hybrid format with 3 namespaces in data but 2 in header:
- *   v2\tintermediary\tnamed
- *   CLASS\tobf\tint\tnamed           (3 names but header says 2 namespaces)
- *   \tFIELD\tobfClass\ttype\tobfName\tintName\tnamedName
- *   \tMETHOD\tobfClass\tsig\tobfName\tintName\tnamedName
- *
- * Proper Tiny v2 format (2 namespaces means 2 names per entry):
- *   tiny\t2\t0\tintermediary\tnamed
- *   c\tint\tnamed                    (only 2 names matching header)
- *   \tf\ttype\tintName\tnamedName
- *   \tm\tsig\tintName\tnamedName
- */
-function postProcessMojang2TinyOutput(inputPath: string, outputPath: string): void {
-  const content = readFileSync(inputPath, 'utf8');
-  const lines = content.split('\n');
-  const outputLines: string[] = [];
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-
-    if (i === 0) {
-      // Fix header: "v2\tintermediary\tnamed" -> "tiny\t2\t0\tintermediary\tnamed"
-      if (line.startsWith('v2\t')) {
-        const namespaces = line.substring(3); // Remove "v2\t"
-        outputLines.push(`tiny\t2\t0\t${namespaces}`);
-      } else if (line.startsWith('v1\t')) {
-        // If v1 format, convert to v2
-        const namespaces = line.substring(3);
-        outputLines.push(`tiny\t2\t0\t${namespaces}`);
-      } else {
-        outputLines.push(line);
-      }
-      continue;
-    }
-
-    // Convert CLASS/FIELD/METHOD tokens to c/f/m and remove obfuscated column
-    if (line.startsWith('CLASS\t')) {
-      // CLASS\tobf\tint\tnamed -> c\tint\tnamed (remove obfuscated name)
-      const parts = line.split('\t');
-      // parts: ['CLASS', obf, int, named]
-      if (parts.length >= 4) {
-        outputLines.push(`c\t${parts[2]}\t${parts[3]}`);
-      } else if (parts.length === 3) {
-        // Fallback if already 2 names
-        outputLines.push(`c\t${parts[1]}\t${parts[2]}`);
-      } else {
-        outputLines.push(line);
-      }
-    } else if (line.startsWith('\tFIELD\t')) {
-      // \tFIELD\tobfClass\ttype\tobfName\tintName\tnamedName
-      // -> \tf\ttype\tintName\tnamedName (remove obfClass and obfName)
-      const parts = line.split('\t');
-      // parts: ['', 'FIELD', obfClass, type, obfName, intName, namedName]
-      if (parts.length >= 7) {
-        outputLines.push(`\tf\t${parts[3]}\t${parts[5]}\t${parts[6]}`);
-      } else {
-        outputLines.push(line);
-      }
-    } else if (line.startsWith('\tMETHOD\t')) {
-      // \tMETHOD\tobfClass\tsig\tobfName\tintName\tnamedName
-      // -> \tm\tsig\tintName\tnamedName (remove obfClass and obfName)
-      const parts = line.split('\t');
-      // parts: ['', 'METHOD', obfClass, sig, obfName, intName, namedName]
-      if (parts.length >= 7) {
-        outputLines.push(`\tm\t${parts[3]}\t${parts[5]}\t${parts[6]}`);
-      } else {
-        outputLines.push(line);
-      }
-    } else {
-      outputLines.push(line);
-    }
-  }
-
-  writeFileSync(outputPath, outputLines.join('\n'));
-  logger.info(`Post-processed mojang2tiny output to proper Tiny v2 format: ${outputPath}`);
-}
+import { getMojmapTinyPath } from '../utils/paths.js';
 
 /**
  * Manages mapping downloads and caching
@@ -307,50 +158,51 @@ export class MappingService {
    * Download Mojang mappings and convert from ProGuard to Tiny v2 format
    *
    * Mojang mappings use ProGuard format which tiny-remapper cannot read directly.
-   * This method:
-   * 1. Downloads the raw ProGuard mappings from Mojang
-   * 2. Downloads Intermediary mappings (as a bridge)
-   * 3. Converts intermediary from Tiny v2 to v1 (mojang2tiny requires v1 input)
-   * 4. Uses mojang2tiny to convert ProGuard → Tiny v2 (intermediary → named)
-   * 5. Post-processes mojang2tiny output to proper Tiny v2 format
+   * This method uses mapping-io to properly merge ProGuard + Intermediary mappings:
+   *
+   * 1. Downloads raw ProGuard mappings from Mojang (named → obfuscated)
+   * 2. Downloads Intermediary mappings (official → intermediary)
+   * 3. Uses mapping-io to merge them and produce Tiny v2 (intermediary → named)
+   *
+   * The output file has proper Tiny v2 format with fields/methods nested under
+   * their parent classes, which is required for tiny-remapper to work correctly.
    */
   private async downloadAndConvertMojmap(version: string): Promise<string> {
-    logger.info(`Converting Mojmap for ${version} from ProGuard to Tiny format`);
+    logger.info(`Converting Mojmap for ${version} using mapping-io`);
 
     // Step 1: Download raw Mojang ProGuard mappings
-    const mojangRawPath = await this.mojangDownloader.downloadMojangMappings(version);
+    const proguardPath = await this.mojangDownloader.downloadMojangMappings(version);
 
-    // Step 2: Get Intermediary mappings (download if needed) - this is Tiny v2 format
-    const intermediaryV2Path = await this.downloadAndExtractIntermediary(version);
+    // Step 2: Get Intermediary mappings (download if needed)
+    const intermediaryPath = await this.downloadAndExtractIntermediary(version);
 
-    // Step 3: Convert intermediary from Tiny v2 to v1 (mojang2tiny requires v1 input)
-    const conversionDir = getMojmapConversionDir(version);
-    ensureDir(conversionDir);
-    const intermediaryV1Path = join(conversionDir, `intermediary-${version}-v1.tiny`);
-    convertTinyV2ToV1(intermediaryV2Path, intermediaryV1Path);
+    // Step 3: Convert using mapping-io (produces proper Tiny v2)
+    const outputPath = getMojmapTinyPath(version);
+    ensureDir(dirname(outputPath));
 
-    // Step 4: Convert using mojang2tiny (now with v1 intermediary input)
-    const mojang2tiny = getMojang2Tiny();
+    const mappingIO = getMappingIO();
+    await mappingIO.convert(proguardPath, intermediaryPath, outputPath, {
+      onProgress: (msg) => logger.debug(`MappingIO: ${msg}`),
+    });
 
-    const rawConvertedPath = await mojang2tiny.convert(
-      intermediaryV1Path,
-      mojangRawPath,
-      conversionDir,
-      { tinyVersion: 'v2' },
-    );
+    // Step 4: Validate output format
+    const parsed = parseTinyV2(outputPath);
+    if (
+      !parsed.header.namespaces.includes('intermediary') ||
+      !parsed.header.namespaces.includes('named')
+    ) {
+      throw new Error(
+        `Invalid mapping-io output: expected namespaces 'intermediary' and 'named', ` +
+          `got ${parsed.header.namespaces.join(', ')}`
+      );
+    }
 
-    // Step 5: Post-process to proper Tiny v2 format and save to final location
-    // mojang2tiny outputs an invalid hybrid format that needs fixing
-    const finalPath = getMojmapTinyPath(version);
-    ensureDir(dirname(finalPath));
-    postProcessMojang2TinyOutput(rawConvertedPath, finalPath);
-
-    logger.info(`Mojmap converted and saved to ${finalPath}`);
+    logger.info(`Mojmap converted and saved to ${outputPath}`);
 
     // Cache the converted mapping
-    this.cache.cacheMapping(version, 'mojmap', finalPath);
+    this.cache.cacheMapping(version, 'mojmap', outputPath);
 
-    return finalPath;
+    return outputPath;
   }
 
   /**

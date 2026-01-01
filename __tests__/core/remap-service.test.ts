@@ -261,4 +261,117 @@ describe('JAR Remapping', () => {
       expect(duration).toBeLessThan(1000);
     }, 30000);
   });
+
+  describe('Mojmap Method/Field Name Verification', () => {
+    /**
+     * These tests verify that the mapping-io based mojmap conversion
+     * properly remaps method and field names (not just class names).
+     *
+     * The old mojang2tiny approach had a bug where the Tiny v2 output
+     * had fields/methods not nested under their parent classes, causing
+     * tiny-remapper to only remap class names while leaving methods/fields
+     * as intermediary names (method_XXXXX, field_XXXXX).
+     */
+
+    it('should have human-readable method names in decompiled mojmap source', async () => {
+      const decompileService = getDecompileService();
+
+      const source = await decompileService.getClassSource(
+        TEST_VERSION,
+        'net.minecraft.world.entity.Entity',
+        'mojmap'
+      );
+
+      expect(source).toBeDefined();
+
+      // Verify mojmap method names exist (common Entity methods)
+      // These should be human-readable, NOT intermediary names like method_XXXXX
+      expect(source).toContain('tick(');
+      expect(source).toContain('isAlive(');
+
+      // Ensure NO intermediary method names leaked through
+      // If remapping failed, we'd see method_XXXXX patterns
+      const methodMatch = source.match(/method_\d+/g);
+      expect(methodMatch).toBeNull();
+    }, 180000); // 3 minutes - mojmap decompilation can take time on first run
+
+    it('should have human-readable field names in decompiled mojmap source', async () => {
+      const decompileService = getDecompileService();
+
+      const source = await decompileService.getClassSource(
+        TEST_VERSION,
+        'net.minecraft.world.entity.Entity',
+        'mojmap'
+      );
+
+      expect(source).toBeDefined();
+
+      // Ensure NO intermediary field names leaked through
+      // If remapping failed, we'd see field_XXXXX patterns
+      const fieldMatch = source.match(/field_\d+/g);
+      expect(fieldMatch).toBeNull();
+    }, 180000); // 3 minutes
+
+    it('should have human-readable names in MinecraftServer class', async () => {
+      const decompileService = getDecompileService();
+
+      const source = await decompileService.getClassSource(
+        TEST_VERSION,
+        'net.minecraft.server.MinecraftServer',
+        'mojmap'
+      );
+
+      expect(source).toBeDefined();
+
+      // Ensure no intermediary names leaked through
+      const methodMatch = source.match(/method_\d+/g);
+      const fieldMatch = source.match(/field_\d+/g);
+
+      expect(methodMatch).toBeNull();
+      expect(fieldMatch).toBeNull();
+
+      // Verify some expected human-readable names exist
+      expect(source).toContain('runServer');
+    }, 180000); // 3 minutes
+  });
+
+  describe('Yarn Method/Field Name Verification', () => {
+    it('should have human-readable method names in decompiled yarn source', async () => {
+      const decompileService = getDecompileService();
+
+      const source = await decompileService.getClassSource(
+        TEST_VERSION,
+        'net.minecraft.entity.Entity',
+        'yarn'
+      );
+
+      expect(source).toBeDefined();
+
+      // Verify yarn method names (tick is a common method)
+      expect(source).toContain('tick(');
+
+      // Ensure NO intermediary method names leaked through
+      const methodMatch = source.match(/method_\d+/g);
+      expect(methodMatch).toBeNull();
+    }, 60000);
+
+    it('should have mostly human-readable field names in decompiled yarn source', async () => {
+      const decompileService = getDecompileService();
+
+      const source = await decompileService.getClassSource(
+        TEST_VERSION,
+        'net.minecraft.entity.Entity',
+        'yarn'
+      );
+
+      expect(source).toBeDefined();
+
+      // Yarn doesn't name every field - some fields genuinely have intermediary names
+      // because the Yarn community hasn't assigned human-readable names to them yet.
+      // We allow up to 20 intermediary field names (typically there are ~5-10 unnamed).
+      const fieldMatch = source.match(/field_\d+/g);
+      const intermediaryFieldCount = fieldMatch ? fieldMatch.length : 0;
+      expect(intermediaryFieldCount).toBeLessThan(20);
+    }, 60000);
+  });
 });

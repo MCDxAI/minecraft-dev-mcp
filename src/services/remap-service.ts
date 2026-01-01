@@ -207,6 +207,7 @@ export class RemapService {
         toNamespace: 'named',
         threads: 4,
         rebuildSourceFilenames: true,
+        ignoreConflicts: true, // Mojmap may have inheritance conflicts
         onProgress: (msg) => onProgress?.(`[2/2] ${msg}`),
       });
 

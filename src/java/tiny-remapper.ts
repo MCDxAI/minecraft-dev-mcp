@@ -10,6 +10,7 @@ export interface TinyRemapperOptions {
   toNamespace: string;
   threads?: number;
   rebuildSourceFilenames?: boolean;
+  ignoreConflicts?: boolean;
   onProgress?: (progress: string) => void;
 }
 
@@ -47,6 +48,7 @@ export class TinyRemapperWrapper {
       toNamespace,
       threads = 4,
       rebuildSourceFilenames = true,
+      ignoreConflicts = false,
       onProgress,
     } = options;
 
@@ -61,6 +63,10 @@ export class TinyRemapperWrapper {
 
     if (rebuildSourceFilenames) {
       args.push('--rebuildSourceFilenames');
+    }
+
+    if (ignoreConflicts) {
+      args.push('--ignoreConflicts');
     }
 
     logger.info(`Remapping JAR: ${inputJar} -> ${outputJar}`);

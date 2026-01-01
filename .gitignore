@@ -40,4 +40,14 @@ logs/
 ai_reference/FabricMod-Remapper/
 ai_reference/mojang2tiny/
 ai_reference/tiny-remapper/
+ai_reference/mapping-io/
 ai_reference/*-remapped-*.jar
+
+# Tools build artifacts (but keep the final JARs for distribution)
+tools/*/build/*
+!tools/*/build/libs/
+!tools/*/build/libs/*.jar
+tools/*/.gradle/
+tools/*/gradle/
+tools/*/gradlew
+tools/*/gradlew.bat

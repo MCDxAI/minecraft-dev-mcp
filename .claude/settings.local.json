@@ -34,9 +34,19 @@
       "Skill(readme-generator)",
       "Skill(repo-sweep)",
       "Bash(git check-ignore:*)",
-      "Bash(del REMAINING_WORK.md)"
+      "Bash(del REMAINING_WORK.md)",
+      "Skill(mcp-publisher)",
+      "Bash(python:*)",
+      "Skill(mcp-publish)",
+      "Bash(gradle wrapper:*)",
+      "Bash(./gradlew shadowJar:*)",
+      "Bash(./gradlew clean:*)",
+      "Bash(unzip:*)",
+      "Bash(javap -p -)"
     ]
   },
   "enableAllProjectMcpServers": true,
-  "enabledMcpjsonServers": ["minecraft-dev"]
+  "enabledMcpjsonServers": [
+    "minecraft-dev"
+  ]
 }

@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { ensureDir } from '../utils/file-utils.js';
 import { logger } from '../utils/logger.js';
 import { paths } from '../utils/paths.js';
@@ -10,16 +11,18 @@ import { downloadFile } from './http-client.js';
  * Sources:
  * - Vineflower: https://github.com/Vineflower/vineflower/releases
  * - tiny-remapper: https://maven.fabricmc.net/net/fabricmc/tiny-remapper/
- * - mojang2tiny: https://github.com/ThreadMC/mojang2tiny/releases
+ * - mapping-io-cli: Bundled with package (tools/mapping-io-cli/)
  */
 
 const VINEFLOWER_VERSION = '1.11.2';
 const TINY_REMAPPER_VERSION = '0.10.3'; // Using latest from Maven
-const MOJANG2TINY_VERSION = '1.1.1';
 
 const VINEFLOWER_URL = `https://github.com/Vineflower/vineflower/releases/download/${VINEFLOWER_VERSION}/vineflower-${VINEFLOWER_VERSION}.jar`;
 const TINY_REMAPPER_URL = `https://maven.fabricmc.net/net/fabricmc/tiny-remapper/${TINY_REMAPPER_VERSION}/tiny-remapper-${TINY_REMAPPER_VERSION}-fat.jar`;
-const MOJANG2TINY_URL = `https://github.com/ThreadMC/mojang2tiny/releases/download/v${MOJANG2TINY_VERSION}/mojang2tiny-${MOJANG2TINY_VERSION}.jar`;
+
+// Get the directory of this module for resolving bundled resources
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 export class JavaResourceDownloader {
   private resourcesDir: string;
@@ -117,57 +120,37 @@ export class JavaResourceDownloader {
   }
 
   /**
-   * Get mojang2tiny JAR path (download if not exists)
-   * Uses locking to prevent concurrent downloads
-   * Used to convert Mojang ProGuard mappings to Tiny v2 format
+   * Get mapping-io-cli JAR path (bundled with package)
+   *
+   * This JAR is used to convert ProGuard + Intermediary mappings to Tiny v2 format.
+   * Unlike other tools, this is shipped with the package, not downloaded.
+   *
+   * @throws Error if the bundled JAR is not found
    */
-  async getMojang2TinyJar(): Promise<string> {
-    const jarPath = join(this.resourcesDir, `mojang2tiny-${MOJANG2TINY_VERSION}.jar`);
+  getMappingIOCliJar(): string {
+    // Resolve path relative to package root
+    // From: dist/downloaders/java-resources.js
+    // To: tools/mapping-io-cli/build/libs/mapping-io-cli-1.0.0.jar
+    const jarPath = join(__dirname, '..', '..', 'tools', 'mapping-io-cli', 'build', 'libs', 'mapping-io-cli-1.0.0.jar');
 
-    if (existsSync(jarPath)) {
-      logger.debug(`Using cached mojang2tiny at ${jarPath}`);
-      return jarPath;
+    if (!existsSync(jarPath)) {
+      throw new Error(
+        `Bundled mapping-io-cli.jar not found at ${jarPath}. ` +
+          'Please build it with: cd tools/mapping-io-cli && ./gradlew shadowJar'
+      );
     }
 
-    // Check if download is already in progress
-    const existingDownload = this.downloadLocks.get('mojang2tiny');
-    if (existingDownload) {
-      logger.info('Waiting for existing mojang2tiny download to complete');
-      return existingDownload;
-    }
-
-    // Start download with lock
-    const downloadPromise = this.doDownloadMojang2Tiny(jarPath);
-    this.downloadLocks.set('mojang2tiny', downloadPromise);
-
-    try {
-      return await downloadPromise;
-    } finally {
-      this.downloadLocks.delete('mojang2tiny');
-    }
-  }
-
-  private async doDownloadMojang2Tiny(jarPath: string): Promise<string> {
-    logger.info(`Downloading mojang2tiny ${MOJANG2TINY_VERSION}...`);
-    await downloadFile(MOJANG2TINY_URL, jarPath, {
-      onProgress: (downloaded, total) => {
-        const percent = ((downloaded / total) * 100).toFixed(1);
-        logger.debug(`mojang2tiny download progress: ${percent}%`);
-      },
-    });
-    logger.info(`mojang2tiny downloaded to ${jarPath}`);
+    logger.debug(`Using bundled mapping-io-cli at ${jarPath}`);
     return jarPath;
   }
 
   /**
-   * Download all Java resources
+   * Download all Java resources (that need downloading)
    */
   async downloadAll(): Promise<void> {
-    await Promise.all([
-      this.getVineflowerJar(),
-      this.getTinyRemapperJar(),
-      this.getMojang2TinyJar(),
-    ]);
+    await Promise.all([this.getVineflowerJar(), this.getTinyRemapperJar()]);
+    // Also verify bundled JAR exists
+    this.getMappingIOCliJar();
     logger.info('All Java resources ready');
   }
 
@@ -177,9 +160,18 @@ export class JavaResourceDownloader {
   hasAllResources(): boolean {
     const vineflower = join(this.resourcesDir, `vineflower-${VINEFLOWER_VERSION}.jar`);
     const tinyRemapper = join(this.resourcesDir, `tiny-remapper-${TINY_REMAPPER_VERSION}-fat.jar`);
-    const mojang2tiny = join(this.resourcesDir, `mojang2tiny-${MOJANG2TINY_VERSION}.jar`);
+    const mappingIoCli = join(
+      __dirname,
+      '..',
+      '..',
+      'tools',
+      'mapping-io-cli',
+      'build',
+      'libs',
+      'mapping-io-cli-1.0.0.jar'
+    );
 
-    return existsSync(vineflower) && existsSync(tinyRemapper) && existsSync(mojang2tiny);
+    return existsSync(vineflower) && existsSync(tinyRemapper) && existsSync(mappingIoCli);
   }
 }
 

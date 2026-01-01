@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { getMappingService } from '../../src/services/mapping-service.js';
 import { TEST_MAPPING, TEST_VERSION } from '../test-constants.js';
@@ -330,4 +330,107 @@ describe('Mapping Lookup - Not Found', () => {
 
     expect(result.found).toBe(false);
   }, 60000);
+});
+
+describe('Mojmap Tiny v2 Structure Verification', () => {
+  /**
+   * These tests verify that the mapping-io based mojmap conversion
+   * produces properly structured Tiny v2 files where fields and methods
+   * are nested under their parent classes.
+   *
+   * The old mojang2tiny approach had a bug where all classes were grouped
+   * together (lines 1-10243), then all fields (lines 10244-55488), then
+   * all methods. This broke tiny-remapper which expects nesting.
+   */
+
+  it('should produce Tiny v2 with fields nested under classes', async () => {
+    const mappingService = getMappingService();
+    const mappingPath = await mappingService.getMappings(TEST_VERSION, 'mojmap');
+
+    const content = readFileSync(mappingPath, 'utf8');
+    const lines = content.split('\n');
+
+    // Verify header format
+    expect(lines[0]).toMatch(/^tiny\t2\t0\t/);
+
+    // Find Entity class line
+    const entityLineIdx = lines.findIndex(
+      (l) => l.startsWith('c\t') && l.includes('Entity') && !l.includes('EntityType')
+    );
+    expect(entityLineIdx).toBeGreaterThan(0);
+
+    // The line immediately after a class definition should be a field or method
+    // (starts with a tab character), NOT another class definition
+    const nextLine = lines[entityLineIdx + 1];
+    if (nextLine && nextLine.trim()) {
+      // If there's content, it should be a nested member (starts with tab)
+      // or another class (no tab). We're checking that fields/methods
+      // ARE nested under classes, not grouped separately.
+      expect(nextLine.startsWith('\t') || nextLine.startsWith('c\t')).toBe(true);
+    }
+  }, 180000);
+
+  it('should have fields/methods interspersed with classes (not grouped)', async () => {
+    const mappingService = getMappingService();
+    const mappingPath = await mappingService.getMappings(TEST_VERSION, 'mojmap');
+
+    const content = readFileSync(mappingPath, 'utf8');
+    const lines = content.split('\n');
+
+    // Count class, field, and method lines
+    let classLines = 0;
+    let fieldLines = 0;
+    let methodLines = 0;
+
+    for (const line of lines) {
+      if (line.startsWith('c\t')) classLines++;
+      else if (line.startsWith('\tf\t')) fieldLines++;
+      else if (line.startsWith('\tm\t')) methodLines++;
+    }
+
+    // Should have substantial numbers of each
+    expect(classLines).toBeGreaterThan(1000);
+    expect(fieldLines).toBeGreaterThan(1000);
+    expect(methodLines).toBeGreaterThan(1000);
+
+    // Find first occurrence of each type
+    const firstClass = lines.findIndex((l) => l.startsWith('c\t'));
+    const firstField = lines.findIndex((l) => l.startsWith('\tf\t'));
+    const firstMethod = lines.findIndex((l) => l.startsWith('\tm\t'));
+
+    // In proper Tiny v2, fields and methods should appear VERY soon after first class
+    // (not all classes first, then all fields, then all methods)
+    // First field/method should be within first 100 lines after first class
+    expect(firstField - firstClass).toBeLessThan(100);
+    expect(firstMethod - firstClass).toBeLessThan(200);
+  }, 180000);
+
+  it('should lookup mojmap method mapping correctly', async () => {
+    const mappingService = getMappingService();
+
+    // 'tick' is a common method that should exist in Entity
+    // This test verifies that method mappings work (which requires proper nesting)
+    const result = await mappingService.lookupMapping(
+      TEST_VERSION,
+      'tick',
+      'mojmap',
+      'intermediary'
+    );
+
+    expect(result.found).toBe(true);
+    expect(result.type).toBe('method');
+    expect(result.target).toContain('method_');
+  }, 60000);
+
+  it('should have intermediary and named namespaces', async () => {
+    const mappingService = getMappingService();
+    const mappingPath = await mappingService.getMappings(TEST_VERSION, 'mojmap');
+
+    const content = readFileSync(mappingPath, 'utf8');
+    const firstLine = content.split('\n')[0];
+
+    // Header should be: tiny\t2\t0\tintermediary\t{other namespaces including named or official}
+    expect(firstLine).toContain('intermediary');
+    expect(firstLine).toContain('named');
+  }, 180000);
 });

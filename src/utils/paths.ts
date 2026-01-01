@@ -116,13 +116,6 @@ export function getMojmapTinyPath(version: string): string {
 }
 
 /**
- * Get the directory for mojang2tiny conversion output
- */
-export function getMojmapConversionDir(version: string): string {
-  return join(paths.mappings(), 'mojmap-conversion', version);
-}
-
-/**
  * Get registry data path
  */
 export function getRegistryPath(version: string): string {
