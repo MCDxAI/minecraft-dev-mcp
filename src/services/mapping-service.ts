@@ -279,19 +279,11 @@ export class MappingService {
    *                   mojmap
    */
   async lookupMapping(
-    rawVersion: string,
+    version: string,
     symbol: string,
     sourceMapping: MappingType,
     targetMapping: MappingType,
   ): Promise<MappingLookupResult> {
-    // Strip Forge/NeoForge loader suffix so callers can pass patched-version
-    // strings like "1.21.1-neoforge-21.1.72" without an explicit error. Vanilla
-    // mojmap names are preserved in patched JARs, so this lookup remains valid.
-    const version = stripPatchedVersion(rawVersion);
-    if (version !== rawVersion) {
-      logger.info(`Patched version detected (${rawVersion} → ${version}) for mapping lookup`);
-    }
-
     logger.info(`Looking up mapping: ${symbol} (${sourceMapping} -> ${targetMapping})`);
 
     // Same mapping type - no translation needed
@@ -652,19 +644,6 @@ export class MappingService {
 
     return this.createLookupResult(false, memberName);
   }
-}
-
-/**
- * Detect a patched-MC version string of the form `<mc>-<loader>-<loaderVersion>`
- * (e.g., `1.21.1-neoforge-21.1.72`, `1.20.1-forge-47.4.0`) and return just the
- * vanilla MC component. Returns the input unchanged if no known loader suffix
- * is present.
- *
- * Exported for testing and reuse by other tools that need vanilla-MC fallback.
- */
-export function stripPatchedVersion(version: string): string {
-  const match = version.match(/^(\d+\.\d+(?:\.\d+)?)-(forge|neoforge|fabric|quilt)-/i);
-  return match ? match[1] : version;
 }
 
 /**

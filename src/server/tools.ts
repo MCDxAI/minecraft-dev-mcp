@@ -48,30 +48,36 @@ const GetMinecraftSourceSchema = z.object({
     ),
 });
 
-const DecompileMinecraftVersionSchema = z.object({
-  version: z
-    .string()
-    .describe(
-      'Minecraft version to decompile. When `jarPath` is provided this is treated as an opaque cache key — the conventional schema is `<mc>-<loader>-<loaderVersion>` (e.g., `1.21.1-neoforge-21.1.72`).',
-    ),
-  mapping: z
-    .enum(['yarn', 'mojmap'])
-    .describe(
-      'Mapping type to use. For Forge/NeoForge dev environments (1.17+) this is always `mojmap`.',
-    ),
-  force: z
-    .boolean()
-    .optional()
-    .describe(
-      'Force re-decompilation even if cached. Wipes the decompiled directory, decompile job row, and FTS5 search index for this (version, mapping) so it can be rebuilt cleanly.',
-    ),
-  jarPath: z
-    .string()
-    .optional()
-    .describe(
-      'Optional path to a local Forge/NeoForge patched Minecraft JAR (supports WSL and Windows paths). When set, skips the Mojang download + remap pipeline and decompiles the provided JAR directly. Sources JARs (no .class entries) are extracted directly; compiled JARs are decompiled with VineFlower. The `mapping` parameter is treated as a label only — no remapping is performed.',
-    ),
-});
+const DecompileMinecraftVersionSchema = z
+  .object({
+    version: z
+      .string()
+      .describe(
+        'Minecraft version to decompile. When `jarPath` is provided this is treated as an opaque cache key — the conventional schema is `<mc>-<loader>-<loaderVersion>` (e.g., `1.21.1-neoforge-21.1.72`).',
+      ),
+    mapping: z
+      .enum(['yarn', 'mojmap'])
+      .describe(
+        'Mapping type to use. `yarn` is Fabric/Quilt only. Forge/NeoForge dev environments (1.17+) are mojmap-exclusive — when `jarPath` is provided, this must be `mojmap`.',
+      ),
+    force: z
+      .boolean()
+      .optional()
+      .describe(
+        'Force re-decompilation even if cached. Wipes the decompiled directory, decompile job row, and FTS5 search index for this (version, mapping) so it can be rebuilt cleanly.',
+      ),
+    jarPath: z
+      .string()
+      .optional()
+      .describe(
+        'Optional path to a local Forge/NeoForge patched Minecraft JAR (supports WSL and Windows paths). When set, skips the Mojang download + remap pipeline and decompiles the provided JAR directly. Sources JARs (no .class entries) are extracted directly; compiled JARs are decompiled with VineFlower. No remapping is performed — the JAR is already mojmap-named, which is why `mapping` must be `mojmap` in this mode.',
+      ),
+  })
+  .refine((args) => !args.jarPath || args.mapping === 'mojmap', {
+    message:
+      "Forge/NeoForge patched JARs are mojmap-exclusive (yarn is a Fabric/Quilt mapping with no equivalent in the Forge ecosystem). Set `mapping: 'mojmap'` when passing `jarPath`.",
+    path: ['mapping'],
+  });
 
 const GetRegistryDataSchema = z.object({
   version: z.string().describe('Minecraft version'),
@@ -298,7 +304,7 @@ export const tools = [
           type: 'string',
           enum: ['yarn', 'mojmap'],
           description:
-            'Mapping type to use. For Forge/NeoForge dev environments (1.17+), use `mojmap`.',
+            'Mapping type to use. `yarn` is Fabric/Quilt only. Forge/NeoForge dev environments (1.17+) are mojmap-exclusive — when `jarPath` is provided, this must be `mojmap`.',
         },
         force: {
           type: 'boolean',
@@ -308,7 +314,7 @@ export const tools = [
         jarPath: {
           type: 'string',
           description:
-            'Optional local Forge/NeoForge patched MC JAR path (WSL or Windows). When set, skips download/remap and decompiles (or extracts, if it is a sources JAR) directly. Trusts the user-supplied `mapping` as a label.',
+            'Optional local Forge/NeoForge patched MC JAR path (WSL or Windows). When set, skips download/remap and decompiles (or extracts, if it is a sources JAR) directly. The JAR is already mojmap-named, so `mapping` must be `mojmap`.',
         },
       },
       required: ['version', 'mapping'],

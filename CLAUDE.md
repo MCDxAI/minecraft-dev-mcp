@@ -289,8 +289,10 @@ The code should work automatically, but be aware:
 - Compact and efficient
 - Well-supported by tools
 
-### Patched MC JARs (Forge/NeoForge) — opaque version key
-For `decompile_minecraft_version` with `jarPath`, the `version` parameter is treated as an opaque cache-key string (convention: `<mc>-<loader>-<loaderVersion>`). No parsing — the same key flows unchanged through `getDecompiledPath`, the cache DB, the FTS5 index, and every downstream tool. This is why patched MC slots into the existing `decompiled/{version}/{mapping}/` layout with zero new code paths in search/index/compare. `find_mapping` is the one exception: it strips the loader suffix via `stripPatchedVersion` so tinyfile lookups still resolve to the vanilla MC's mapping data.
+### Patched MC JARs (Forge/NeoForge) — opaque version key, mojmap-only
+For `decompile_minecraft_version` with `jarPath`, the `version` parameter is treated as an opaque cache-key string (convention: `<mc>-<loader>-<loaderVersion>`). No parsing — the same key flows unchanged through `getDecompiledPath`, the cache DB, the FTS5 index, and every downstream tool. This is why patched MC slots into the existing `decompiled/{version}/{mapping}/` layout with zero new code paths in search/index/compare.
+
+Forge/NeoForge dev environments (1.17+) are **mojmap-exclusive** — yarn is a Fabric/Quilt mapping with no equivalent in the Forge ecosystem. The schema enforces `mapping === 'mojmap'` whenever `jarPath` is set. `find_mapping` does no special-casing for patched keys: callers wanting a vanilla mojmap↔yarn translation should pass the vanilla MC version directly.
 
 ### Sources-vs-compiled detection (`src/utils/jar-inspector.ts`)
 Deterministic central-directory scan: any `.class` entry → decompile via VineFlower; else any `.java` → extract directly (NFRT/ForgeGradle `-sources.jar` fast path); else error. Mixed JARs always decompile (any `.class` wins). Avoids filename heuristics, which Forge/NeoForge dev artifacts don't reliably follow.
@@ -316,7 +318,7 @@ Deterministic central-directory scan: any `.class` entry → decompile via VineF
 
 ### Phase 1 Tools (Core)
 1. **`get_minecraft_source`** - Get decompiled source for a Minecraft class
-2. **`decompile_minecraft_version`** - Trigger full decompilation of a version. Pass `jarPath` to point at a local Forge/NeoForge **patched** MC JAR (cache key convention: `<mc>-<loader>-<loaderVersion>`, e.g. `1.21.1-neoforge-21.1.72`). Sources JARs (no `.class` entries) are extracted directly; compiled JARs run through VineFlower. `force: true` wipes the decompiled dir, the job row, and the FTS5 index for that (version, mapping).
+2. **`decompile_minecraft_version`** - Trigger full decompilation of a version. Pass `jarPath` to point at a local Forge/NeoForge **patched** MC JAR (cache key convention: `<mc>-<loader>-<loaderVersion>`, e.g. `1.21.1-neoforge-21.1.72`); in this mode `mapping` must be `'mojmap'` (Forge/NeoForge dev environments are mojmap-only post-1.17). Sources JARs (no `.class` entries) are extracted directly; compiled JARs run through VineFlower. `force: true` wipes the decompiled dir, the job row, and the FTS5 index for that (version, mapping).
 3. **`list_minecraft_versions`** - List available and cached versions
 4. **`get_registry_data`** - Get registry data (blocks, items, entities)
 
