@@ -41,7 +41,7 @@ jobs:
             neoforge: '21.1.72'
           - name: neoforge-1.21.4
             mc: '1.21.4'
-            neoforge: '21.4.30'
+            neoforge: '21.4.123'
     steps:
       - uses: actions/checkout@v4
 
@@ -147,9 +147,12 @@ jobs:
         working-directory: __tests__/fixtures/forge-1.20.1
         run: |
           set -euo pipefail
-          # `setupDecompWorkspace` materializes the patched MC JAR into the
-          # ForgeGradle cache. We then copy it into a stable location.
-          gradle --no-daemon setupDecompWorkspace
+          # ForgeGradle 6 has no explicit setup task — the patched MC JAR
+          # materializes lazily when any configuration referencing the
+          # `minecraft` artifact is resolved. The `eclipse` task generates
+          # .classpath, which forces resolution of all dep configurations
+          # without needing src/main/java/ to be populated.
+          gradle --no-daemon eclipse
           OUT="$(pwd)/build/forge-patched.jar"
           mkdir -p "$(dirname "$OUT")"
           # ForgeGradle 6 stores the patched, mapped MC JAR here:
