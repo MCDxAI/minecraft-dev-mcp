@@ -1,0 +1,166 @@
+name: Patched-JAR Tests
+
+# End-to-end coverage for the Forge/NeoForge patched-Minecraft pipeline added
+# under issue #9. Generates a real patched MC JAR per matrix entry (NeoForge via
+# NeoFormRuntime, Forge via a tiny ForgeGradle fixture project) and runs the
+# patched-jar test suite against it.
+#
+# Manually triggered + on push to main when relevant code changes — patched-JAR
+# generation downloads vanilla MC + applies patches and is too heavy for every PR.
+
+on:
+  workflow_dispatch:
+    inputs:
+      matrix_filter:
+        description: 'Optional matrix filter (substring match on `name` field)'
+        required: false
+        default: ''
+  push:
+    branches: [main]
+    paths:
+      - 'src/services/decompile-service.ts'
+      - 'src/services/mapping-service.ts'
+      - 'src/utils/jar-inspector.ts'
+      - 'src/server/tools.ts'
+      - '__tests__/manual/patched/**'
+      - '.github/workflows/patched-jars.yml'
+
+jobs:
+  neoforge:
+    name: NeoForge ${{ matrix.mc }} / ${{ matrix.neoforge }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: neoforge-1.20.4
+            mc: '1.20.4'
+            neoforge: '20.4.248'
+          - name: neoforge-1.21.1
+            mc: '1.21.1'
+            neoforge: '21.1.72'
+          - name: neoforge-1.21.4
+            mc: '1.21.4'
+            neoforge: '21.4.30'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: 'npm'
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Cache NeoFormRuntime working dir + produced JAR
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.neoformruntime
+            nfrt-out
+          key: nfrt-${{ matrix.mc }}-${{ matrix.neoforge }}-v1
+
+      - name: Resolve NeoFormRuntime
+        # Releases: https://maven.neoforged.net/releases/net/neoforged/neoform-runtime/
+        env:
+          NFRT_VERSION: '1.0.30'
+        run: |
+          set -euo pipefail
+          mkdir -p tools
+          NFRT_URL="https://maven.neoforged.net/releases/net/neoforged/neoform-runtime/${NFRT_VERSION}/neoform-runtime-${NFRT_VERSION}-all.jar"
+          if [ ! -f tools/nfrt.jar ]; then
+            curl -fL --retry 3 -o tools/nfrt.jar "$NFRT_URL"
+          fi
+          java -jar tools/nfrt.jar --version
+
+      - name: Generate patched MC JAR via NFRT
+        run: |
+          set -euo pipefail
+          mkdir -p nfrt-out
+          OUT="$(pwd)/nfrt-out/${{ matrix.name }}.jar"
+          if [ ! -f "$OUT" ]; then
+            java -jar tools/nfrt.jar run \
+              --neoforge "net.neoforged:neoforge:${{ matrix.neoforge }}:userdev" \
+              --write-result "compiledWithNeoForge:$OUT"
+          fi
+          test -s "$OUT"
+          echo "PATCHED_JAR_PATH=$OUT" >> "$GITHUB_ENV"
+          echo "PATCHED_VERSION=${{ matrix.mc }}-neoforge-${{ matrix.neoforge }}" >> "$GITHUB_ENV"
+          echo "PATCHED_MC_VERSION=${{ matrix.mc }}" >> "$GITHUB_ENV"
+          echo "PATCHED_LOADER=neoforge" >> "$GITHUB_ENV"
+
+      - name: Run patched-JAR test suite
+        run: npm run test:manual:patched
+
+  forge:
+    name: Forge 1.20.1 / 47.4.0
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: 'npm'
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          # Gradle 8.5 is the last 8.x line that ForgeGradle 6.0.+ tracks
+          # cleanly against the 1.20.1 toolchain.
+          gradle-version: '8.5'
+
+      - name: Cache ForgeGradle artifact cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches/forge_gradle
+            __tests__/fixtures/forge-1.20.1/build
+          key: forge-1.20.1-47.4.0-v1
+
+      - name: Build patched Forge MC via ForgeGradle fixture
+        working-directory: __tests__/fixtures/forge-1.20.1
+        run: |
+          set -euo pipefail
+          # `setupDecompWorkspace` materializes the patched MC JAR into the
+          # ForgeGradle cache. We then copy it into a stable location.
+          gradle --no-daemon setupDecompWorkspace
+          OUT="$(pwd)/build/forge-patched.jar"
+          mkdir -p "$(dirname "$OUT")"
+          # ForgeGradle 6 stores the patched, mapped MC JAR here:
+          PATCHED="$(find ~/.gradle/caches/forge_gradle/minecraft_user_repo \
+            -path '*1.20.1-47.4.0_mapped_official_1.20.1*' -name '*.jar' \
+            ! -name '*sources*' ! -name '*-slim*' | head -n1)"
+          test -n "$PATCHED" -a -s "$PATCHED"
+          cp "$PATCHED" "$OUT"
+          echo "PATCHED_JAR_PATH=$OUT" >> "$GITHUB_ENV"
+          echo "PATCHED_VERSION=1.20.1-forge-47.4.0" >> "$GITHUB_ENV"
+          echo "PATCHED_MC_VERSION=1.20.1" >> "$GITHUB_ENV"
+          echo "PATCHED_LOADER=forge" >> "$GITHUB_ENV"
+
+      - name: Run patched-JAR test suite
+        run: npm run test:manual:patched

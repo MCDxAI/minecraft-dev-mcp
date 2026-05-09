@@ -110,6 +110,7 @@ This is a **Model Context Protocol (MCP) server** that provides AI assistants wi
 - `registry/{version}/` - Registry data
 - `resources/` - Java tool JARs (VineFlower, tiny-remapper)
 - Central cache is shared across workspaces; expect ~400–450 MB per MC version (JAR + mappings + remapped + decompiled + registry).
+- Patched-MC variants (Forge/NeoForge — see `decompile_minecraft_version`'s `jarPath`) reuse the same `decompiled/{version}/{mapping}/` layout under a version key like `1.21.1-neoforge-21.1.72`, adding ~250–400 MB per variant on top of vanilla.
 
 ## Build & ESM Requirements
 
@@ -290,7 +291,7 @@ The code should work automatically, but be aware:
 
 ### Phase 1 Tools (Core)
 1. **`get_minecraft_source`** - Get decompiled source for a Minecraft class
-2. **`decompile_minecraft_version`** - Trigger full decompilation of a version
+2. **`decompile_minecraft_version`** - Trigger full decompilation of a version. Pass `jarPath` to point at a local Forge/NeoForge **patched** MC JAR (cache key convention: `<mc>-<loader>-<loaderVersion>`, e.g. `1.21.1-neoforge-21.1.72`). Sources JARs (no `.class` entries) are extracted directly; compiled JARs run through VineFlower. `force: true` wipes the decompiled dir, the job row, and the FTS5 index for that (version, mapping).
 3. **`list_minecraft_versions`** - List available and cached versions
 4. **`get_registry_data`** - Get registry data (blocks, items, entities)
 

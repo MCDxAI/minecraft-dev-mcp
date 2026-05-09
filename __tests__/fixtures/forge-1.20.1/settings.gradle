@@ -1,0 +1,8 @@
+rootProject.name = 'mc-dev-mcp-forge-fixture'
+
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        maven { url = 'https://maven.minecraftforge.net/' }
+    }
+}

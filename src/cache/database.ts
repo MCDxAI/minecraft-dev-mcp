@@ -234,6 +234,15 @@ class CacheDatabase {
     stmt.run(...params);
   }
 
+  /**
+   * Delete a decompile job row (used by force flag to allow re-decompilation)
+   */
+  deleteJob(version: string, mapping: MappingType): void {
+    this.db
+      .prepare('DELETE FROM decompile_jobs WHERE version = ? AND mapping = ?')
+      .run(version, mapping);
+  }
+
   // Mod decompile job operations
   getModJob(modId: string, modVersion: string, mapping: MappingType): ModDecompileJob | undefined {
     const stmt = this.db.prepare(

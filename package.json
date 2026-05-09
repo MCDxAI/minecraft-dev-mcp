@@ -19,6 +19,7 @@
     "test:manual": "vitest --config vitest.manual.config.ts",
     "test:manual:mcp": "vitest --config vitest.manual.config.ts __tests__/manual/mcp",
     "test:manual:mcp:smoke": "cross-env MCP_E2E_VERSIONS=1.21.11,26.1-snapshot-1,26.1-snapshot-8,26.1-snapshot-9 vitest --config vitest.manual.config.ts __tests__/manual/mcp",
+    "test:manual:patched": "vitest --config vitest.manual.config.ts __tests__/manual/patched",
     "test:manual:1.21.10": "vitest __tests__/manual/v1.21.10",
     "test:manual:1.20.1": "vitest __tests__/manual/v1.20.1",
     "test:manual:1.19.4": "vitest __tests__/manual/v1.19.4",

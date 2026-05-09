@@ -49,9 +49,28 @@ const GetMinecraftSourceSchema = z.object({
 });
 
 const DecompileMinecraftVersionSchema = z.object({
-  version: z.string().describe('Minecraft version to decompile'),
-  mapping: z.enum(['yarn', 'mojmap']).describe('Mapping type to use'),
-  force: z.boolean().optional().describe('Force re-decompilation even if cached'),
+  version: z
+    .string()
+    .describe(
+      'Minecraft version to decompile. When `jarPath` is provided this is treated as an opaque cache key — the conventional schema is `<mc>-<loader>-<loaderVersion>` (e.g., `1.21.1-neoforge-21.1.72`).',
+    ),
+  mapping: z
+    .enum(['yarn', 'mojmap'])
+    .describe(
+      'Mapping type to use. For Forge/NeoForge dev environments (1.17+) this is always `mojmap`.',
+    ),
+  force: z
+    .boolean()
+    .optional()
+    .describe(
+      'Force re-decompilation even if cached. Wipes the decompiled directory, decompile job row, and FTS5 search index for this (version, mapping) so it can be rebuilt cleanly.',
+    ),
+  jarPath: z
+    .string()
+    .optional()
+    .describe(
+      'Optional path to a local Forge/NeoForge patched Minecraft JAR (supports WSL and Windows paths). When set, skips the Mojang download + remap pipeline and decompiles the provided JAR directly. Sources JARs (no .class entries) are extracted directly; compiled JARs are decompiled with VineFlower. The `mapping` parameter is treated as a label only — no remapping is performed.',
+    ),
 });
 
 const GetRegistryDataSchema = z.object({
@@ -266,22 +285,30 @@ export const tools = [
   {
     name: 'decompile_minecraft_version',
     description:
-      'Decompile an entire Minecraft version. This downloads the client JAR, remaps it, and decompiles all classes. Subsequent calls will use cached results.',
+      'Decompile an entire Minecraft version. By default downloads the client JAR from Mojang, remaps it to the chosen mapping, and runs VineFlower across every class — subsequent calls use cached results. To work with a Forge/NeoForge **patched** Minecraft JAR (which adds loader hooks, deprecated method overloads, interface injection, etc.), pass `jarPath` pointing to your local patched JAR (e.g., from the ForgeGradle/NeoForge ModDevGradle cache or NeoFormRuntime output) and use a `version` string of the form `<mc>-<loader>-<loaderVersion>` (e.g., `1.21.1-neoforge-21.1.72`). The patched decompilation lives alongside vanilla in the cache and is queryable via every downstream tool (get_minecraft_source, search_minecraft_code, index_minecraft_version, search_indexed, compare_versions). For Forge/NeoForge 1.17+ dev artifacts, use `mapping: "mojmap"`.',
     inputSchema: {
       type: 'object',
       properties: {
         version: {
           type: 'string',
-          description: 'Minecraft version to decompile',
+          description:
+            'Minecraft version (e.g., "1.21.10"). When `jarPath` is provided this is an opaque cache key — convention is `<mc>-<loader>-<loaderVersion>` (e.g., `1.21.1-neoforge-21.1.72`).',
         },
         mapping: {
           type: 'string',
           enum: ['yarn', 'mojmap'],
-          description: 'Mapping type to use',
+          description:
+            'Mapping type to use. For Forge/NeoForge dev environments (1.17+), use `mojmap`.',
         },
         force: {
           type: 'boolean',
-          description: 'Force re-decompilation even if cached',
+          description:
+            'Force re-decompilation even if cached. Wipes decompiled directory, job row, and FTS5 index for this (version, mapping).',
+        },
+        jarPath: {
+          type: 'string',
+          description:
+            'Optional local Forge/NeoForge patched MC JAR path (WSL or Windows). When set, skips download/remap and decompiles (or extracts, if it is a sources JAR) directly. Trusts the user-supplied `mapping` as a label.',
         },
       },
       required: ['version', 'mapping'],
@@ -847,18 +874,46 @@ export async function handleGetMinecraftSource(args: unknown) {
 }
 
 export async function handleDecompileMinecraftVersion(args: unknown) {
-  const { version, mapping, force } = DecompileMinecraftVersionSchema.parse(args);
-
-  logger.info(`Decompiling ${version} with ${mapping} mappings`);
+  const { version, mapping, force, jarPath } = DecompileMinecraftVersionSchema.parse(args);
 
   const decompileService = getDecompileService();
 
-  // TODO: Handle force flag by clearing cache
   if (force) {
-    logger.warn('Force flag not yet implemented');
+    logger.info(`Force: clearing cache for ${version}/${mapping}`);
+    decompileService.forceClear(version, mapping as MappingType);
   }
 
   try {
+    if (jarPath) {
+      const normalized = normalizePath(jarPath);
+      logger.info(
+        `Decompiling local JAR for ${version}/${mapping} from ${normalized} (patched-JAR flow)`,
+      );
+
+      let totalClasses = 0;
+      const result = await decompileService.decompileLocalJar(
+        normalized,
+        version,
+        mapping as MappingType,
+        (_current, total) => {
+          totalClasses = total;
+        },
+      );
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              `Local JAR processed (${result.mode === 'extracted' ? 'sources extracted' : 'decompiled'}).\n\n` +
+              `Version: ${version}\nMapping: ${mapping}\nSource JAR: ${normalized}\n` +
+              `Files: ${totalClasses}\nOutput: ${result.outputDir}`,
+          },
+        ],
+      };
+    }
+
+    logger.info(`Decompiling ${version} with ${mapping} mappings`);
     let totalClasses = 0;
 
     const outputDir = await decompileService.decompileVersion(
