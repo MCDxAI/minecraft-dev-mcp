@@ -208,6 +208,25 @@ Tests the entire pipeline end-to-end:
 npm test  # Runs all integration tests
 ```
 
+### Patched-JAR Suite (`__tests__/manual/patched/`)
+
+Env-driven E2E suite that exercises the full patched-MC pipeline (decompile/extract → get_minecraft_source → search → index → vanilla-vs-patched compare → force re-run). Skips cleanly when `PATCHED_JAR_PATH` is unset.
+
+CI generates real patched JARs via `.github/workflows/patched-jars.yml`:
+- NeoForge matrix (1.20.4, 1.21.1, 1.21.4) via NeoFormRuntime (`nfrt run --dist joined --neoforge ...:userdev`)
+- Forge 1.20.1 via a tiny ForgeGradle 6 fixture project (`gradle eclipse` triggers lazy materialization — FG6 has no equivalent of FG5's `setupDecompWorkspace`)
+
+Triggered on `workflow_dispatch` and on main pushes that touch the patched-JAR surface. Out of default PR CI to keep it fast.
+
+Local run against your own JAR:
+```bash
+PATCHED_JAR_PATH=/path/to/patched.jar \
+PATCHED_VERSION=1.21.1-neoforge-21.1.72 \
+PATCHED_MC_VERSION=1.21.1 \
+PATCHED_LOADER=neoforge \
+npm run test:manual:patched
+```
+
 ## Common Tasks
 
 ### Adding Support for a New Mapping Type
@@ -269,6 +288,12 @@ The code should work automatically, but be aware:
 - Supports multiple namespaces in one file
 - Compact and efficient
 - Well-supported by tools
+
+### Patched MC JARs (Forge/NeoForge) — opaque version key
+For `decompile_minecraft_version` with `jarPath`, the `version` parameter is treated as an opaque cache-key string (convention: `<mc>-<loader>-<loaderVersion>`). No parsing — the same key flows unchanged through `getDecompiledPath`, the cache DB, the FTS5 index, and every downstream tool. This is why patched MC slots into the existing `decompiled/{version}/{mapping}/` layout with zero new code paths in search/index/compare. `find_mapping` is the one exception: it strips the loader suffix via `stripPatchedVersion` so tinyfile lookups still resolve to the vanilla MC's mapping data.
+
+### Sources-vs-compiled detection (`src/utils/jar-inspector.ts`)
+Deterministic central-directory scan: any `.class` entry → decompile via VineFlower; else any `.java` → extract directly (NFRT/ForgeGradle `-sources.jar` fast path); else error. Mixed JARs always decompile (any `.class` wins). Avoids filename heuristics, which Forge/NeoForge dev artifacts don't reliably follow.
 
 ## Troubleshooting
 
