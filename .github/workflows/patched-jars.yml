@@ -91,6 +91,7 @@ jobs:
           OUT="$(pwd)/nfrt-out/${{ matrix.name }}.jar"
           if [ ! -f "$OUT" ]; then
             java -jar tools/nfrt.jar run \
+              --dist joined \
               --neoforge "net.neoforged:neoforge:${{ matrix.neoforge }}:userdev" \
               --write-result "compiledWithNeoForge:$OUT"
           fi
