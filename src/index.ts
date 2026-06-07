@@ -286,7 +286,14 @@ class MinecraftDevMCPServer {
         res.status(400).send('Invalid or missing session ID');
         return;
       }
-      await transport.handleRequest(req, res);
+      try {
+        await transport.handleRequest(req, res);
+      } catch (error) {
+        logger.error('Error handling HTTP session request', error);
+        if (!res.headersSent) {
+          res.status(500).send('Internal Server Error');
+        }
+      }
     };
 
     app.get('/mcp', handleSessionRequest);
