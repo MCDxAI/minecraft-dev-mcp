@@ -51,3 +51,5 @@ tools/*/.gradle/
 tools/*/gradle/
 tools/*/gradlew
 tools/*/gradlew.bat
+/.pi/skills
+/.pi
