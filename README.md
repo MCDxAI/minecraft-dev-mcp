@@ -88,6 +88,53 @@ Add to `.claude/settings.local.json` in your project, or to your global Claude C
 
 <div align="center">
 
+## HTTP Transport
+
+For clients or editors that connect over HTTP instead of stdio, start the server in HTTP mode. It uses the MCP Streamable HTTP transport with per-session isolation.
+
+| Flag | Description |
+| --- | --- |
+| `--http` | Start with the Streamable HTTP transport instead of stdio |
+| `--port <number>` | Port to listen on (default: `3000`) — also implies `--http` |
+| `--host <address>` | Host to bind to (default: `127.0.0.1`) |
+
+</div>
+
+```bash
+minecraft-dev-mcp --http --port 3000
+```
+
+The MCP endpoint is `http://<host>:<port>/mcp` (POST to call, GET for the SSE stream, DELETE to end a session). Each client gets its own session, so multiple clients can connect concurrently.
+
+> **Security:** the default host `127.0.0.1` enables the SDK's DNS-rebinding protection automatically. Binding to a non-loopback host (e.g. `--host 0.0.0.0`) disables that protection — only do so on a trusted network, ideally behind a reverse proxy or auth.
+
+---
+
+<div align="center">
+
+## CLI
+
+A standalone CLI (`minecraft-dev-cli`) invokes the same tools directly — no MCP client required — for scripts, skills, and automation. Arguments are **flags-only** (`--key value` or `--key=value`) to avoid the JSON-quoting issues positional JSON arguments cause in PowerShell and other shells.
+
+</div>
+
+```bash
+# List every tool with its parameters
+minecraft-dev-cli list-tools
+
+# Invoke a tool with flags
+minecraft-dev-cli get_minecraft_source --version 1.21.10 --className net.minecraft.world.entity.Entity --mapping yarn
+
+# Boolean / numeric / JSON values are coerced automatically
+minecraft-dev-cli analyze_mod_jar --jarPath C:\mods\example.jar --includeAllClasses true
+```
+
+Output is always JSON: `{ "success": true, "tool": "...", "result": ... }` on success, or `{ "success": false, "tool": "...", "error": "..." }` with exit code `1` on failure. Run `minecraft-dev-cli help` for full usage.
+
+---
+
+<div align="center">
+
 ## Features
 
 | Feature | Description |

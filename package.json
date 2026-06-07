@@ -1,15 +1,22 @@
 {
   "name": "@mcdxai/minecraft-dev-mcp",
   "version": "1.1.0",
-  "description": "MCP server for Minecraft mod development - decompile, remap, and explore Minecraft source code",
+  "description": "MCP server and CLI for Minecraft mod development - decompile, remap, and explore Minecraft source code",
   "type": "module",
   "main": "./dist/index.js",
   "bin": {
-    "minecraft-dev-mcp": "./dist/index.js"
+    "minecraft-dev-mcp": "./dist/index.js",
+    "minecraft-dev-cli": "./dist/cli.js"
   },
-  "files": ["dist", "README.md", "LICENSE"],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
+    "cli": "tsx src/cli.ts",
     "dev": "tsx watch src/index.ts",
+    "dev:http": "tsx watch src/index.ts --http",
     "build": "tsc",
     "prepublishOnly": "npm run clean && npm run build",
     "inspect": "npm run build && npx @modelcontextprotocol/inspector node dist/index.js",
@@ -34,7 +41,14 @@
     "lint:fix": "biome check --write .",
     "clean": "rimraf dist"
   },
-  "keywords": ["minecraft", "fabric", "mod-development", "mcp", "decompiler", "mappings"],
+  "keywords": [
+    "minecraft",
+    "fabric",
+    "mod-development",
+    "mcp",
+    "decompiler",
+    "mappings"
+  ],
   "author": "GhostTypes",
   "license": "MIT",
   "repository": {
@@ -46,15 +60,17 @@
   },
   "homepage": "https://github.com/MCDxAI/minecraft-dev-mcp#readme",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.4",
+    "@modelcontextprotocol/sdk": "^1.24.0",
     "adm-zip": "^0.5.16",
     "better-sqlite3": "^11.7.0",
+    "express": "^5.0.1",
     "zod": "^3.24.1"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
     "@types/adm-zip": "^0.5.5",
     "@types/better-sqlite3": "^7.6.12",
+    "@types/express": "^5.0.6",
     "@types/node": "^22.10.1",
     "cross-env": "^7.0.3",
     "rimraf": "^6.0.1",
