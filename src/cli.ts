@@ -25,17 +25,32 @@ function outputError(message: string): never {
 }
 
 /**
- * Coerce a flag value: booleans and JSON literals (numbers, arrays, objects)
- * are parsed; everything else is left as a raw string.
+ * Coerce a flag value based on the parameter's JSON-schema type.
+ *
+ * Coercion is schema-driven (not value-guessing) so that string fields keep
+ * their literal text: `--version 1.20` stays "1.20" rather than becoming the
+ * number 1.2, and `--query 42` stays "42". Only number/boolean/array/object
+ * fields are converted.
  */
-export function parseFlagValue(value: string): unknown {
-  if (value === 'true') return true;
-  if (value === 'false') return false;
-
-  try {
-    return JSON.parse(value);
-  } catch {
-    return value;
+export function coerceFlagValue(value: string, expectedType?: string): unknown {
+  switch (expectedType) {
+    case 'number':
+    case 'integer': {
+      const num = Number(value);
+      return Number.isNaN(num) ? value : num;
+    }
+    case 'boolean':
+      return value === 'true' || value === '1';
+    case 'array':
+    case 'object':
+      try {
+        return JSON.parse(value);
+      } catch {
+        return value;
+      }
+    default:
+      // string or unknown type -> keep the raw string
+      return value;
   }
 }
 
@@ -125,6 +140,12 @@ export function parseArgs(args: string[]): ParsedArgs {
     );
   }
 
+  const properties = (
+    tool.inputSchema as unknown as {
+      properties?: Record<string, { type?: string } | undefined>;
+    }
+  ).properties;
+
   // Parse parameters
   const params: Record<string, unknown> = {};
 
@@ -134,21 +155,31 @@ export function parseArgs(args: string[]): ParsedArgs {
       outputError(`Unexpected positional argument: ${arg}\nUse --key value or --key=value flags.`);
     }
 
+    let key: string;
+    let value: string | undefined;
+
     const eqIndex = arg.indexOf('=');
     if (eqIndex > 2) {
-      const key = arg.slice(2, eqIndex);
-      const value = arg.slice(eqIndex + 1);
-      params[key] = parseFlagValue(value);
-      continue;
+      key = arg.slice(2, eqIndex);
+      value = arg.slice(eqIndex + 1);
+    } else {
+      key = arg.slice(2);
+      const nextArg = args[i + 1];
+      if (nextArg && !nextArg.startsWith('--')) {
+        value = nextArg;
+        i++;
+      }
     }
 
-    const key = arg.slice(2);
-    const nextArg = args[i + 1];
-    if (nextArg && !nextArg.startsWith('--')) {
-      params[key] = parseFlagValue(nextArg);
-      i++;
-    } else {
+    if (!key) {
+      outputError(`Invalid flag: ${arg}\nUse --key value or --key=value flags.`);
+    }
+
+    if (value === undefined) {
+      // Bare flag (no value) -> boolean true
       params[key] = true;
+    } else {
+      params[key] = coerceFlagValue(value, properties?.[key]?.type);
     }
   }
 

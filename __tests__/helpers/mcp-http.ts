@@ -59,7 +59,10 @@ export async function startHttpMcpServer(host = '127.0.0.1'): Promise<HttpMcpSer
     {
       cwd: process.cwd(),
       env: { ...process.env, LOG_LEVEL: 'ERROR' },
-      stdio: ['ignore', 'pipe', 'pipe'],
+      // Logger writes to a file; we only consume stderr for early-exit
+      // diagnostics. Ignore stdout so a full pipe buffer can never block the
+      // child process.
+      stdio: ['ignore', 'ignore', 'pipe'],
     },
   );
 

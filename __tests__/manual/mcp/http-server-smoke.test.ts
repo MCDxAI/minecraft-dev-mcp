@@ -67,6 +67,53 @@ describe('MCP HTTP Server Smoke', () => {
     }
   }, 30000);
 
+  it('accepts the session id via ?sessionId= query param (browser EventSource fallback)', async () => {
+    const accept = 'application/json, text/event-stream';
+
+    // 1. Initialize to obtain a session id (returned in the response header).
+    const initRes = await fetch(server.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: accept },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          clientInfo: { name: 'query-smoke', version: '0.0.0' },
+        },
+      }),
+    });
+    expect(initRes.status).toBe(200);
+    const sid = initRes.headers.get('mcp-session-id');
+    expect(sid).toBeTruthy();
+    await initRes.text();
+
+    // 2. Complete the handshake using ONLY the query param (no header).
+    const notifyRes = await fetch(`${server.url}?sessionId=${sid}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: accept },
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }),
+    });
+    expect(notifyRes.status).toBeLessThan(300);
+    await notifyRes.text();
+
+    // 3. tools/list using ONLY the query param must be accepted.
+    const listRes = await fetch(`${server.url}?sessionId=${sid}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: accept },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }),
+    });
+    expect(listRes.status).toBe(200);
+
+    const text = await listRes.text();
+    const dataLine = text.split('\n').find((line) => line.startsWith('data:'));
+    expect(dataLine).toBeTruthy();
+    const payload = JSON.parse((dataLine as string).slice('data:'.length).trim());
+    expect(payload.result.tools.length).toBe(20);
+  }, 30000);
+
   it('rejects a POST without a session id that is not an initialize request', async () => {
     const res = await fetch(server.url, {
       method: 'POST',

@@ -60,6 +60,30 @@ function parseTransportOptions(args: string[]): TransportOptions {
   return { mode, host, port };
 }
 
+/**
+ * Resolve the MCP session id from the `mcp-session-id` header, falling back to
+ * a `?sessionId=` query parameter for browser clients that use the native
+ * EventSource API (which cannot set custom headers).
+ *
+ * When the id comes from the query, it is copied into the request header so the
+ * SDK transport's internal session validation (which only reads the header)
+ * accepts it.
+ */
+function resolveSessionId(req: ExpressRequest): string | undefined {
+  const header = req.headers['mcp-session-id'];
+  if (typeof header === 'string') {
+    return header;
+  }
+
+  const query = req.query.sessionId;
+  if (typeof query === 'string' && query.length > 0) {
+    req.headers['mcp-session-id'] = query;
+    return query;
+  }
+
+  return undefined;
+}
+
 class MinecraftDevMCPServer {
   constructor() {
     this.setupErrorHandling();
@@ -211,7 +235,7 @@ class MinecraftDevMCPServer {
 
     app.post('/mcp', async (req, res) => {
       try {
-        const sessionId = req.headers['mcp-session-id'] as string | undefined;
+        const sessionId = resolveSessionId(req);
         let transport = sessionId ? transports[sessionId] : undefined;
 
         if (!transport && isInitializeRequest(req.body)) {
@@ -256,7 +280,7 @@ class MinecraftDevMCPServer {
 
     // GET (SSE stream) and DELETE (session teardown) reuse the session transport.
     const handleSessionRequest = async (req: ExpressRequest, res: ExpressResponse) => {
-      const sessionId = req.headers['mcp-session-id'] as string | undefined;
+      const sessionId = resolveSessionId(req);
       const transport = sessionId ? transports[sessionId] : undefined;
       if (!transport) {
         res.status(400).send('Invalid or missing session ID');
