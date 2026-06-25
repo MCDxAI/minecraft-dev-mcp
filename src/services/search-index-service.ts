@@ -11,6 +11,7 @@ import Database from 'better-sqlite3';
 import { getCacheManager } from '../cache/cache-manager.js';
 import type { MappingType, RankedSearchResult } from '../types/minecraft.js';
 import { SearchIndexError } from '../utils/errors.js';
+import { extractJavaSymbols } from '../utils/java-symbols.js';
 import { logger } from '../utils/logger.js';
 import { getCacheDir, getDecompiledModPath, getDecompiledPath } from '../utils/paths.js';
 
@@ -235,26 +236,20 @@ export class SearchIndexService {
           const className = relativePath.replace(/\//g, '.').replace('.java', '');
           const source = readFileSync(filePath, 'utf8');
 
-          // Index the class itself
-          entries.push({
-            className,
-            filePath: relativePath,
-            entryType: 'class',
-            symbol: className.split('.').pop() || className,
-            context: this.extractClassContext(source),
-            line: 1,
-          });
-
-          // Index methods and fields
-          const members = this.extractMembers(source);
-          for (const member of members) {
+          // Extract classes, methods, and fields via a real Java AST. This
+          // captures declarations the previous line-regex dropped (qualified /
+          // generic types, annotations, constructors) and attributes each member
+          // to its fully-qualified declaring class, excluding anonymous-class
+          // bodies (e.g. decode/encode inside a StreamCodec field initializer).
+          const symbols = extractJavaSymbols(source);
+          for (const symbol of symbols) {
             entries.push({
-              className,
+              className: symbol.declaringClass,
               filePath: relativePath,
-              entryType: member.type,
-              symbol: member.name,
-              context: member.context,
-              line: member.line,
+              entryType: symbol.entryType,
+              symbol: symbol.symbol,
+              context: symbol.context,
+              line: symbol.line,
             });
           }
 
@@ -280,75 +275,6 @@ export class SearchIndexService {
     logger.info(`Indexed ${files.length} files in ${duration}ms`);
 
     return { fileCount: files.length, duration };
-  }
-
-  /**
-   * Extract class context (first line with class declaration)
-   */
-  private extractClassContext(source: string): string {
-    const lines = source.split('\n');
-    for (const line of lines) {
-      if (
-        line.match(
-          /(?:public|private|protected)?\s*(?:abstract\s+)?(?:final\s+)?(?:class|interface|enum)\s+\w+/,
-        )
-      ) {
-        return line.trim().substring(0, 300);
-      }
-    }
-    return lines[0]?.trim().substring(0, 300) || '';
-  }
-
-  /**
-   * Extract methods and fields from source
-   */
-  private extractMembers(source: string): Array<{
-    type: 'method' | 'field';
-    name: string;
-    context: string;
-    line: number;
-  }> {
-    const members: Array<{
-      type: 'method' | 'field';
-      name: string;
-      context: string;
-      line: number;
-    }> = [];
-
-    const lines = source.split('\n');
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-
-      // Match method declarations
-      const methodMatch = line.match(
-        /(?:public|private|protected)\s+(?:static\s+)?(?:final\s+)?(?:synchronized\s+)?(?:native\s+)?(?:abstract\s+)?(?:<[^>]+>\s+)?[\w<>,\[\]]+\s+(\w+)\s*\(/,
-      );
-      if (methodMatch) {
-        members.push({
-          type: 'method',
-          name: methodMatch[1],
-          context: line.trim().substring(0, 300),
-          line: i + 1,
-        });
-        continue;
-      }
-
-      // Match field declarations
-      const fieldMatch = line.match(
-        /(?:public|private|protected)\s+(?:static\s+)?(?:final\s+)?(?:volatile\s+)?[\w<>,\[\]]+\s+(\w+)\s*[;=]/,
-      );
-      if (fieldMatch && !line.includes('(')) {
-        members.push({
-          type: 'field',
-          name: fieldMatch[1],
-          context: line.trim().substring(0, 300),
-          line: i + 1,
-        });
-      }
-    }
-
-    return members;
   }
 
   /**
@@ -776,27 +702,31 @@ export class SearchIndexService {
         try {
           const source = readFileSync(filePath, 'utf8');
 
-          // Index class name
-          entries.push({
-            className,
-            filePath: relativePath,
-            entryType: 'class',
-            symbol: className,
-            context: className,
-            line: 1,
-          });
-
-          // Extract and index methods and fields
-          const members = this.extractMembers(source);
-          for (const member of members) {
+          // Extract classes, methods, and fields via a real Java AST (see
+          // indexVersion for rationale).
+          const symbols = extractJavaSymbols(source);
+          if (symbols.length === 0) {
+            // Fallback for files the parser yielded nothing from (e.g. unusual
+            // generated code) so the class is still discoverable by name.
             entries.push({
               className,
               filePath: relativePath,
-              entryType: member.type,
-              symbol: member.name,
-              context: member.context,
-              line: member.line,
+              entryType: 'class',
+              symbol: className,
+              context: className,
+              line: 1,
             });
+          } else {
+            for (const symbol of symbols) {
+              entries.push({
+                className: symbol.declaringClass,
+                filePath: relativePath,
+                entryType: symbol.entryType,
+                symbol: symbol.symbol,
+                context: symbol.context,
+                line: symbol.line,
+              });
+            }
           }
 
           processedCount++;
