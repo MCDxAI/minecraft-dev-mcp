@@ -9,6 +9,7 @@
  * quoting pain that positional JSON arguments cause in PowerShell and other shells.
  */
 
+import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { verifyJavaVersion } from './java/java-process.js';
 import { handleToolCall, tools } from './server/tools.js';
@@ -252,9 +253,24 @@ async function main(): Promise<void> {
   await invokeTool(tool, params);
 }
 
-// Run only when executed directly (not when imported by tests)
-const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
-if (isMain) {
+// Run only when executed directly (not when imported by tests).
+// Compare real paths so symlinked installs (nvm-windows, `npm link`) still match:
+// Node resolves `import.meta.url` to the realpath, while `process.argv[1]` keeps the
+// symlinked path (e.g. C:\nvm4w\nodejs\... vs the real version dir), so a plain
+// string compare would be false and main() would never run.
+function isMainModule(): boolean {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  const here = fileURLToPath(import.meta.url);
+  if (entry === here) return true;
+  try {
+    return realpathSync(entry) === here;
+  } catch {
+    return false;
+  }
+}
+
+if (isMainModule()) {
   main().catch((error) => {
     outputError(`CLI failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
   });

@@ -1,6 +1,6 @@
 {
   "name": "@mcdxai/minecraft-dev-mcp",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "MCP server and CLI for Minecraft mod development - decompile, remap, and explore Minecraft source code",
   "type": "module",
   "main": "./dist/index.js",
