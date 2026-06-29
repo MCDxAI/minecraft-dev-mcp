@@ -216,6 +216,43 @@ Yarn mappings are discontinued after 1.21.11, which is the last obfuscated Minec
 
 <div align="center">
 
+## Cache Location
+
+Downloaded JARs, mappings, decompiled source, and search databases live in a platform-specific cache directory shared across all workspaces (~400–500 MB per Minecraft version).
+
+| Platform | Cache Path |
+| --- | --- |
+| **Windows** | `%APPDATA%\minecraft-dev-mcp` |
+| **macOS** | `~/Library/Application Support/minecraft-dev-mcp` |
+| **Linux / WSL** | `~/.config/minecraft-dev-mcp` |
+
+</div>
+
+Delete the directory to clear the cache — the server re-downloads anything missing on next use. To relocate the cache anywhere on disk, set the `CACHE_DIR` environment variable (see [Configuration](#configuration)).
+
+<div align="center">
+
+### Cache Contents
+
+| Path | Contents |
+| --- | --- |
+| `jars/` | Client and server JARs |
+| `mappings/` | Yarn, Mojmap, and Intermediary mapping files |
+| `remapped/` | Remapped JARs |
+| `decompiled/<version>/<mapping>/` | Decompiled Minecraft source |
+| `decompiled-mods/<modId>/<modVersion>/<mapping>/` | Decompiled third-party mod source |
+| `registry/<version>/` | Extracted registry data (blocks, items, entities) |
+| `resources/` | Java tool JARs (VineFlower, tiny-remapper) |
+| `cache.db` | SQLite metadata database |
+| `search_index.db` | SQLite FTS5 full-text search index |
+| `minecraft-dev-mcp.log` | Server log file |
+
+</div>
+
+---
+
+<div align="center">
+
 ## Development
 
 | Task | Command |
