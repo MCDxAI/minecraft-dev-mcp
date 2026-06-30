@@ -80,6 +80,11 @@
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
   },
+  "overrides": {
+    "tree-sitter-java": {
+      "tree-sitter": "$tree-sitter"
+    }
+  },
   "engines": {
     "node": ">=18.0.0"
   }
