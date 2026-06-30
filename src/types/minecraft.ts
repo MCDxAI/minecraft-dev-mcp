@@ -325,6 +325,16 @@ export interface FieldSignature {
   constantValue?: string;
 }
 
+/** Structured Java parameter, used by class/method signatures. */
+export interface JavaParameter {
+  /** Parameter name (may be absent for synthetic / abstract sources) */
+  name?: string;
+  /** Declared type text (e.g. "int", "String", "Map<String, Integer>") */
+  type: string;
+  /** True for varargs parameters ("int... nums") */
+  isVarArgs?: boolean;
+}
+
 /** Class signature for diffing */
 export interface ClassSignature {
   /** Fully qualified class name */
@@ -339,10 +349,20 @@ export interface ClassSignature {
   isEnum: boolean;
   /** Is abstract */
   isAbstract: boolean;
+  /** Is a record (Java 16+) */
+  isRecord?: boolean;
+  /** Is declared final */
+  isFinal?: boolean;
+  /** Generic type parameters as raw source text, e.g. "<T extends Number>" */
+  typeParameters?: string;
+  /** Record header components (records only) */
+  recordComponents?: JavaParameter[];
   /** Superclass */
   superclass?: string;
   /** Implemented interfaces */
   interfaces: string[];
+  /** Permitted subclasses for sealed types (source form; ASM bytecode is authoritative). */
+  permits?: string[];
   /** Methods */
   methods: MethodSignature[];
   /** Fields */

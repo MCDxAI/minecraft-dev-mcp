@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { getVineflower } from '../../src/java/vineflower.js';
 import {
+  classifySearchHits,
   handleAnalyzeModJar,
   handleDecompileModJar,
   handleIndexMod,
@@ -304,4 +305,52 @@ describe('MCP Tool: search_mod_indexed', () => {
       expect(r.entryType).toBe('method');
     });
   }, 30000);
+});
+
+describe('search_mod_code hit classification (AST-based, shared helper)', () => {
+  // A mod-shaped source (a Meteor-style Module) exercising the same AST
+  // classification used by search_mod_code. No decompiled mod cache or Java
+  // runtime is required — this tests the shared `classifySearchHits` helper
+  // directly. Line numbers are pinned by the array layout.
+  const source = [
+    '// mod header TARGET note', // 1  — no enclosing declaration -> 'content'
+    'package com.example.mymod;', // 2
+    '', // 3
+    'import java.util.Map;', // 4
+    '', // 5
+    'public class Module {', // 6  — class
+    '    private java.util.Map<String, Integer> settings;', // 7 — field (generic)
+    '', // 8
+    '    void onActivate() {', // 9 — method (package-private)
+    '        int count = settings.size();', // 10 — inside onActivate body
+    '        System.out.println("TARGET activate");', // 11 — inside body
+    '    }', // 12
+    '', // 13
+    '    @Override', // 14 — annotation line of a multi-line declaration
+    '    public String getName() {', // 15 — method (signature on next line)
+    '        return "TARGET name";', // 16 — inside getName body
+    '    }', // 17
+    '}', // 18
+  ].join('\n');
+
+  it('classifies a header comment (no enclosing declaration) as content', () => {
+    expect(classifySearchHits(source, [1]).get(1)).toBe('content');
+  });
+
+  it('classifies a generic/qualified-type field that the dotted-type regex missed', () => {
+    expect(classifySearchHits(source, [7]).get(7)).toBe('field');
+  });
+
+  it('classifies a package-private method that the access-modifier regex missed', () => {
+    expect(classifySearchHits(source, [9]).get(9)).toBe('method');
+  });
+
+  it('classifies a hit inside a method body as the enclosing method', () => {
+    expect(classifySearchHits(source, [10]).get(10)).toBe('method');
+    expect(classifySearchHits(source, [11]).get(11)).toBe('method');
+  });
+
+  it('classifies a hit on a multi-line declaration annotation line as method', () => {
+    expect(classifySearchHits(source, [14]).get(14)).toBe('method');
+  });
 });

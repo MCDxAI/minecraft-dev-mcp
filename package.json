@@ -64,7 +64,7 @@
     "adm-zip": "^0.5.16",
     "better-sqlite3": "^11.7.0",
     "express": "^5.0.1",
-    "tree-sitter": "^0.21.1",
+    "tree-sitter": "^0.25.0",
     "tree-sitter-java": "^0.23.5",
     "zod": "^3.24.1"
   },
@@ -79,6 +79,11 @@
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
+  },
+  "overrides": {
+    "tree-sitter-java": {
+      "tree-sitter": "$tree-sitter"
+    }
   },
   "engines": {
     "node": ">=18.0.0"

@@ -231,3 +231,30 @@ export class AstParseError extends MinecraftDevError {
     super(message || `Failed to parse AST for ${filePath}`);
   }
 }
+
+/**
+ * Bytecode dump (ASM dumper) failed
+ */
+export class BytecodeDumpError extends MinecraftDevError {
+  constructor(
+    public inputPath: string,
+    message?: string,
+  ) {
+    super(message || `Bytecode dump failed for ${inputPath}`);
+  }
+}
+
+/**
+ * A source-bundled tool JAR (built from `tools/`) was not found on disk.
+ *
+ * Thrown by the bundled-JAR resolvers in `java-resources.ts` when a required
+ * Gradle-built tool (mapping-io-cli, bytecode-dumper) hasn't been built yet.
+ */
+export class ToolNotBuiltError extends MinecraftDevError {
+  constructor(
+    public tool: string,
+    message?: string,
+  ) {
+    super(message || `Bundled tool ${tool} has not been built`);
+  }
+}
