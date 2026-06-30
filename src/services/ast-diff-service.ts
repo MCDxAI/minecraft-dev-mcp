@@ -4,6 +4,13 @@
  * Provides detailed comparison of Minecraft versions at the API level.
  * Parses Java source into structural signatures and compares methods,
  * fields, and class hierarchies between versions.
+ *
+ * Source parsing delegates to `extractJavaSignatures` (tree-sitter) from
+ * `src/utils/java-symbols.ts`. This correctly captures constructors (emitted
+ * as methods with an empty return type), records and record components,
+ * sealed types, annotation-type elements, multi-declarator fields, and
+ * qualified / generic types — all of which the legacy regex extractor
+ * silently dropped. The comparison logic (signatures → diffs) is unchanged.
  */
 
 import { readFileSync, readdirSync } from 'node:fs';
@@ -18,258 +25,83 @@ import type {
   MethodSignature,
 } from '../types/minecraft.js';
 import { AstParseError } from '../utils/errors.js';
+import { extractJavaSignatures } from '../utils/java-symbols.js';
 import { logger } from '../utils/logger.js';
 import { getDecompiledPath } from '../utils/paths.js';
+
+/**
+ * Whether a single {@link AstDiffService.compareMethodSignatures} change string
+ * counts as a breaking change.
+ *
+ * Exported (pure) so the filter contract of {@link AstDiffService.getBreakingChanges}
+ * can be unit-tested directly without a decompiled Minecraft tree on disk.
+ *
+ * NOTE: in practice parameter changes surface via `removedMethods` (a method whose
+ * params change gets a different `methodKey` and is treated as removed+added),
+ * not via `signatureChanges`. This predicate therefore flags return-type changes
+ * in practice; the `Parameter` prefix branch is kept to pin the documented
+ * contract and for forward-compatibility. Do not change the filter behavior.
+ */
+export function isBreakingChange(change: string): boolean {
+  return change.startsWith('Return type changed') || change.startsWith('Parameter');
+}
 
 /**
  * AST Diff Service for detailed version comparison
  */
 export class AstDiffService {
   /**
-   * Parse a Java source file into a ClassSignature
+   * Parse a Java source file into a ClassSignature.
+   *
+   * Delegates structural extraction to `extractJavaSignatures` (tree-sitter),
+   * which returns one ClassSignature per named type (including nested types).
+   * A decompiled `.java` file normally declares a single top-level class whose
+   * simple name matches the file name; nested types also appear as separate
+   * entries in the result. We prefer the signature whose simple name matches
+   * the file name and fall back to the first (top-level) signature. If the
+   * source cannot be parsed, a minimal name-only signature is derived from the
+   * file path so the class remains discoverable in the diff map.
    */
   parseClassSignature(source: string, filePath?: string): ClassSignature {
-    const lines = source.split('\n');
+    const signatures = extractJavaSignatures(source);
 
-    // Extract package
-    let packageName = '';
-    for (const line of lines) {
-      const packageMatch = line.match(/^package\s+([\w.]+);/);
-      if (packageMatch) {
-        packageName = packageMatch[1];
-        break;
+    if (signatures.length > 0) {
+      // A decompiled .java file has one top-level class (matching the file
+      // name); any nested types appear as separate entries in `signatures` AND
+      // are listed in the top-level signature's `innerClasses` field. Prefer
+      // the signature whose simpleName matches the file name; else take the
+      // first (top-level).
+      let chosen: ClassSignature | undefined;
+      if (filePath) {
+        const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || '';
+        const fileSimple = fileName.replace(/\.java$/, '');
+        chosen = signatures.find((s) => s.simpleName === fileSimple);
       }
+      return chosen ?? signatures[0];
     }
 
-    // Extract class declaration
+    // Fallback for unparseable source: emit a minimal signature derived from
+    // the file path (preserves the legacy fallback behavior so the class is
+    // still discoverable by name in the diff map).
     let simpleName = '';
-    let isInterface = false;
-    let isEnum = false;
-    let isAbstract = false;
-    let superclass: string | undefined;
-    const interfaces: string[] = [];
-
-    for (const line of lines) {
-      // Match class/interface/enum declaration
-      const classMatch = line.match(
-        /^(?:public\s+)?(?:(abstract)\s+)?(?:final\s+)?(class|interface|enum)\s+(\w+)(?:<[^>]+>)?(?:\s+extends\s+([\w.<>,\s]+))?(?:\s+implements\s+([\w.<>,\s]+))?/,
-      );
-
-      if (classMatch) {
-        isAbstract = classMatch[1] === 'abstract';
-        const typeKeyword = classMatch[2];
-        simpleName = classMatch[3];
-        isInterface = typeKeyword === 'interface';
-        isEnum = typeKeyword === 'enum';
-
-        if (classMatch[4]) {
-          superclass = classMatch[4].trim().split('<')[0].trim();
-        }
-
-        if (classMatch[5]) {
-          const implementsList = classMatch[5].split(',').map((i) => i.trim().split('<')[0].trim());
-          interfaces.push(...implementsList);
-        }
-        break;
-      }
-    }
-
-    if (!simpleName && filePath) {
-      // Fallback: extract from file path
+    if (filePath) {
       const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || '';
-      simpleName = fileName.replace('.java', '');
+      simpleName = fileName.replace(/\.java$/, '');
     }
-
-    const fullName = packageName ? `${packageName}.${simpleName}` : simpleName;
-
-    // Extract methods
-    const methods = this.extractMethods(source);
-
-    // Extract fields
-    const fields = this.extractFields(source);
-
-    // Extract inner classes (simple detection)
-    const innerClasses = this.extractInnerClasses(source, simpleName);
-
+    const pkg = ''; // cannot determine without parsing
+    const name = simpleName;
     return {
-      name: fullName,
-      package: packageName,
+      name,
+      package: pkg,
       simpleName,
-      isInterface,
-      isEnum,
-      isAbstract,
-      superclass,
-      interfaces,
-      methods,
-      fields,
-      innerClasses,
+      isInterface: false,
+      isEnum: false,
+      isAbstract: false,
+      interfaces: [],
+      methods: [],
+      fields: [],
+      innerClasses: [],
     };
-  }
-
-  /**
-   * Extract method signatures from source
-   */
-  private extractMethods(source: string): MethodSignature[] {
-    const methods: MethodSignature[] = [];
-
-    // Regex to match method declarations (not constructors)
-    // Handles generics, arrays, varargs
-    const methodRegex =
-      /^\s*((?:public|private|protected)\s+)?(?:(static)\s+)?(?:(final)\s+)?(?:(synchronized)\s+)?(?:(native)\s+)?(?:(abstract)\s+)?(?:(<[^>]+>)\s+)?([\w<>,\[\]?]+)\s+(\w+)\s*\(([^)]*)\)(?:\s+throws\s+([\w,\s]+))?/gm;
-
-    for (const match of source.matchAll(methodRegex)) {
-      const modifiers: string[] = [];
-      if (match[1]) modifiers.push(match[1].trim());
-      if (match[2]) modifiers.push('static');
-      if (match[3]) modifiers.push('final');
-      if (match[4]) modifiers.push('synchronized');
-      if (match[5]) modifiers.push('native');
-      if (match[6]) modifiers.push('abstract');
-
-      const typeParameters = match[7] ? [match[7]] : undefined;
-      const returnType = match[8];
-      const methodName = match[9];
-      const paramsStr = match[10];
-      const throwsStr = match[11];
-
-      // Parse parameters
-      const parameters = this.parseParameters(paramsStr);
-
-      // Parse throws
-      const throwsList = throwsStr ? throwsStr.split(',').map((t) => t.trim()) : [];
-
-      methods.push({
-        name: methodName,
-        returnType,
-        parameters,
-        modifiers,
-        throws: throwsList,
-        typeParameters,
-      });
-    }
-
-    return methods;
-  }
-
-  /**
-   * Parse method parameters
-   */
-  private parseParameters(paramsStr: string): string[] {
-    if (!paramsStr.trim()) return [];
-
-    const params: string[] = [];
-    let current = '';
-    let depth = 0; // Track generic depth
-
-    for (const char of paramsStr) {
-      if (char === '<') depth++;
-      if (char === '>') depth--;
-      if (char === ',' && depth === 0) {
-        const param = current.trim();
-        if (param) {
-          // Extract just the type (last space-separated part before variable name)
-          const parts = param.split(/\s+/);
-          // Handle annotations and modifiers
-          let typeIdx = parts.length - 2;
-          while (
-            typeIdx >= 0 &&
-            (parts[typeIdx].startsWith('@') || ['final'].includes(parts[typeIdx]))
-          ) {
-            typeIdx--;
-          }
-          if (typeIdx >= 0) {
-            params.push(parts[typeIdx]);
-          }
-        }
-        current = '';
-      } else {
-        current += char;
-      }
-    }
-
-    // Last parameter
-    const param = current.trim();
-    if (param) {
-      const parts = param.split(/\s+/);
-      let typeIdx = parts.length - 2;
-      while (
-        typeIdx >= 0 &&
-        (parts[typeIdx].startsWith('@') || ['final'].includes(parts[typeIdx]))
-      ) {
-        typeIdx--;
-      }
-      if (typeIdx >= 0) {
-        params.push(parts[typeIdx]);
-      }
-    }
-
-    return params;
-  }
-
-  /**
-   * Extract field signatures from source
-   */
-  private extractFields(source: string): FieldSignature[] {
-    const fields: FieldSignature[] = [];
-
-    // Regex to match field declarations
-    const fieldRegex =
-      /^\s*((?:public|private|protected)\s+)?(?:(static)\s+)?(?:(final)\s+)?(?:(volatile)\s+)?(?:(transient)\s+)?([\w<>,\[\]?]+)\s+(\w+)\s*(?:=\s*([^;]+))?;/gm;
-
-    for (const match of source.matchAll(fieldRegex)) {
-      const modifiers: string[] = [];
-      if (match[1]) modifiers.push(match[1].trim());
-      if (match[2]) modifiers.push('static');
-      if (match[3]) modifiers.push('final');
-      if (match[4]) modifiers.push('volatile');
-      if (match[5]) modifiers.push('transient');
-
-      const type = match[6];
-      const name = match[7];
-      const constantValue = match[8]?.trim();
-
-      fields.push({
-        name,
-        type,
-        modifiers,
-        constantValue: modifiers.includes('final') && constantValue ? constantValue : undefined,
-      });
-    }
-
-    return fields;
-  }
-
-  /**
-   * Extract inner class names
-   */
-  private extractInnerClasses(source: string, outerClassName: string): string[] {
-    const innerClasses: string[] = [];
-
-    let depth = 0;
-    let inOuterClass = false;
-
-    for (let i = 0; i < source.length; i++) {
-      if (source[i] === '{') depth++;
-      if (source[i] === '}') depth--;
-
-      // Look for class declarations at depth > 1 (inside outer class)
-      if (depth >= 1 && !inOuterClass) {
-        inOuterClass = true;
-      }
-
-      if (inOuterClass && depth >= 2) {
-        // Check if we're at a class declaration
-        const remaining = source.substring(i);
-        const classMatch = remaining.match(
-          /^(?:public|private|protected)?\s*(?:static\s+)?(?:abstract\s+)?(?:final\s+)?(?:class|interface|enum)\s+(\w+)/,
-        );
-        if (classMatch && classMatch[1] !== outerClassName) {
-          innerClasses.push(`${outerClassName}$${classMatch[1]}`);
-        }
-      }
-    }
-
-    return [...new Set(innerClasses)];
   }
 
   /**
@@ -439,7 +271,7 @@ export class AstDiffService {
   /**
    * Compare two class signatures
    */
-  private compareClasses(from: ClassSignature, to: ClassSignature): ClassModification | null {
+  public compareClasses(from: ClassSignature, to: ClassSignature): ClassModification | null {
     const addedMethods: MethodSignature[] = [];
     const removedMethods: MethodSignature[] = [];
     const modifiedMethods: ClassModification['modifiedMethods'] = [];
@@ -551,7 +383,7 @@ export class AstDiffService {
   /**
    * Find a method with similar signature (for rename detection)
    */
-  private findSimilarMethod(
+  public findSimilarMethod(
     target: MethodSignature,
     candidates: MethodSignature[],
   ): MethodSignature | null {
@@ -572,7 +404,7 @@ export class AstDiffService {
   /**
    * Compare two method signatures for changes
    */
-  private compareMethodSignatures(from: MethodSignature, to: MethodSignature): string[] {
+  public compareMethodSignatures(from: MethodSignature, to: MethodSignature): string[] {
     const changes: string[] = [];
 
     if (from.returnType !== to.returnType) {
@@ -631,9 +463,8 @@ export class AstDiffService {
 
       for (const change of mod.modifiedMethods) {
         // Only report return type changes and parameter changes as breaking
-        const breakingChanges = change.changes.filter(
-          (c) => c.startsWith('Return type changed') || c.startsWith('Parameter'),
-        );
+        // (see isBreakingChange, exported for direct unit-testing).
+        const breakingChanges = change.changes.filter(isBreakingChange);
         if (breakingChanges.length > 0) {
           signatureChanges.push({
             className: mod.className,

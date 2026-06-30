@@ -15,6 +15,7 @@ import { getRemapService } from '../services/remap-service.js';
 import { getSearchIndexService } from '../services/search-index-service.js';
 import { getVersionManager } from '../services/version-manager.js';
 import type { AccessWidener, MappingType, MixinClass } from '../types/minecraft.js';
+import { extractJavaSymbols } from '../utils/java-symbols.js';
 import { logger } from '../utils/logger.js';
 import { normalizePath } from '../utils/path-converter.js';
 import { getDecompiledPath } from '../utils/paths.js';
@@ -1146,6 +1147,65 @@ export async function handleFindMapping(args: unknown) {
   }
 }
 
+/**
+ * Classification type for a single search hit: the kind of Java declaration
+ * enclosing the matched line, or 'content' when the hit precedes every
+ * declaration in the file (e.g. a header comment).
+ */
+export type SearchHitType = 'class' | 'method' | 'field' | 'content';
+
+/**
+ * Classify search-hit line numbers within a Java source file using its AST
+ * symbols instead of fragile declaration-line regexes.
+ *
+ * For each hit line, the type is the declaration enclosing it: the symbol
+ * whose declaration starts on that exact line, or — when the hit falls
+ * between declaration starts — the nearest *preceding* declaration (so a hit
+ * inside a method body still classifies as that method). Lines before the
+ * first declaration in the file fall back to 'content'.
+ *
+ * The file is parsed at most once (via `extractJavaSymbols`); each hit is
+ * resolved in O(log n) through a binary search over the sorted declaration
+ * start lines. Callers only invoke this for files that produced at least one
+ * grep hit, so files with no matches are never parsed.
+ *
+ * Shared by the `search_minecraft_code` and `search_mod_code` handlers, which
+ * previously each carried an identical (and inaccurate) access-modifier
+ * regex that missed package-private members, generics/qualified types,
+ * constructors, and multi-line declarations.
+ */
+export function classifySearchHits(
+  content: string,
+  hitLineNumbers: number[],
+): Map<number, SearchHitType> {
+  const classified = new Map<number, SearchHitType>();
+  if (hitLineNumbers.length === 0) return classified;
+
+  // One entry per class/method/field, sorted by 1-based start line for the
+  // backward-walk lookup. `JavaEntryType` is exactly 'class' | 'method' |
+  // 'field', so every emitted symbol qualifies as a declaration.
+  const declarations = extractJavaSymbols(content)
+    .map((symbol) => ({ line: symbol.line, type: symbol.entryType }))
+    .sort((a, b) => a.line - b.line);
+  const startLines = declarations.map((declaration) => declaration.line);
+
+  for (const hitLine of hitLineNumbers) {
+    // Rightmost declaration whose start line is <= hitLine (bisectRight - 1).
+    // This single lookup covers both the exact-line case and the
+    // enclosing-declaration backward walk described above.
+    let lo = 0;
+    let hi = startLines.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (startLines[mid] <= hitLine) lo = mid + 1;
+      else hi = mid;
+    }
+    const enclosingIndex = lo - 1;
+    classified.set(hitLine, enclosingIndex >= 0 ? declarations[enclosingIndex].type : 'content');
+  }
+  return classified;
+}
+
 // Handler for search_minecraft_code
 export async function handleSearchMinecraftCode(args: unknown) {
   const { version, query, searchType, mapping, limit = 50 } = SearchMinecraftCodeSchema.parse(args);
@@ -1218,31 +1278,35 @@ export async function handleSearchMinecraftCode(args: unknown) {
             const lines = content.split('\n');
             const regex = new RegExp(query, 'gi');
 
-            for (let i = 0; i < lines.length && results.length < limit; i++) {
-              const line = lines[i];
-              if (regex.test(line)) {
-                // Determine type based on line content
-                let type = 'content';
-                if (
-                  searchType === 'method' ||
-                  (searchType === 'all' && /\s+(public|private|protected)\s+.*\(/.test(line))
-                ) {
-                  type = 'method';
-                } else if (
-                  searchType === 'field' ||
-                  (searchType === 'all' &&
-                    /\s+(public|private|protected)\s+\w+\s+\w+\s*[;=]/.test(line))
-                ) {
-                  type = 'field';
-                }
+            // First pass: collect matching line numbers (1-based). The stateful
+            // `gi` regex is exercised in source order exactly as before, so the
+            // raw hit set is unchanged.
+            const hitLines: number[] = [];
+            for (let i = 0; i < lines.length; i++) {
+              if (regex.test(lines[i])) {
+                hitLines.push(i + 1);
+              }
+            }
 
-                if (searchType === 'all' || type === searchType || searchType === 'content') {
+            // Second pass: classify each hit via the file's AST (parsed once)
+            // and apply the searchType filter. This replaces the fragile
+            // access-modifier declaration regexes, which missed package-private
+            // members, generics/qualified types, constructors, and multi-line
+            // declarations. Files yielding no hits are never parsed.
+            if (hitLines.length > 0) {
+              const classification = classifySearchHits(content, hitLines);
+              for (const hitLine of hitLines) {
+                if (results.length >= limit) break;
+                const type = classification.get(hitLine) ?? 'content';
+                // 'all' and 'content' return every hit; 'method'/'field' keep
+                // only AST-classified hits of that type.
+                if (searchType === 'all' || searchType === 'content' || type === searchType) {
                   results.push({
                     type,
                     name: className,
                     file: relativePath,
-                    line: i + 1,
-                    context: line.trim().substring(0, 200),
+                    line: hitLine,
+                    context: lines[hitLine - 1].trim().substring(0, 200),
                   });
                 }
               }
@@ -2169,31 +2233,35 @@ export async function handleSearchModCode(args: unknown) {
             const lines = content.split('\n');
             const regex = new RegExp(query, 'gi');
 
-            for (let i = 0; i < lines.length && results.length < limit; i++) {
-              const line = lines[i];
-              if (regex.test(line)) {
-                // Determine type based on line content
-                let type = 'content';
-                if (
-                  searchType === 'method' ||
-                  (searchType === 'all' && /\s+(public|private|protected)\s+.*\(/.test(line))
-                ) {
-                  type = 'method';
-                } else if (
-                  searchType === 'field' ||
-                  (searchType === 'all' &&
-                    /\s+(public|private|protected)\s+\w+\s+\w+\s*[;=]/.test(line))
-                ) {
-                  type = 'field';
-                }
+            // First pass: collect matching line numbers (1-based). The stateful
+            // `gi` regex is exercised in source order exactly as before, so the
+            // raw hit set is unchanged.
+            const hitLines: number[] = [];
+            for (let i = 0; i < lines.length; i++) {
+              if (regex.test(lines[i])) {
+                hitLines.push(i + 1);
+              }
+            }
 
-                if (searchType === 'all' || type === searchType || searchType === 'content') {
+            // Second pass: classify each hit via the file's AST (parsed once)
+            // and apply the searchType filter. This replaces the fragile
+            // access-modifier declaration regexes, which missed package-private
+            // members, generics/qualified types, constructors, and multi-line
+            // declarations. Files yielding no hits are never parsed.
+            if (hitLines.length > 0) {
+              const classification = classifySearchHits(content, hitLines);
+              for (const hitLine of hitLines) {
+                if (results.length >= limit) break;
+                const type = classification.get(hitLine) ?? 'content';
+                // 'all' and 'content' return every hit; 'method'/'field' keep
+                // only AST-classified hits of that type.
+                if (searchType === 'all' || searchType === 'content' || type === searchType) {
                   results.push({
                     type,
                     name: className,
                     file: relativePath,
-                    line: i + 1,
-                    context: line.trim().substring(0, 200),
+                    line: hitLine,
+                    context: lines[hitLine - 1].trim().substring(0, 200),
                   });
                 }
               }

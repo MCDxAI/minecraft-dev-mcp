@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { verifyJavaVersion } from '../../src/java/java-process.js';
 import {
+  classifySearchHits,
   handleCompareVersions,
   handleDecompileMinecraftVersion,
   handleFindMapping,
@@ -624,5 +625,78 @@ describe('Decompile and Remap Tools', () => {
     expect(result).toBeDefined();
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain('not found');
+  });
+});
+
+describe('search hit classification (AST-based, shared by search_minecraft_code & search_mod_code)', () => {
+  // Synthetic source crafted so the OLD access-modifier regexes misclassify
+  // several declarations that the AST gets right. Line numbers are pinned by
+  // the array layout below; each entry's trailing comment is its 1-based line.
+  // No Minecraft cache or Java runtime is required — this exercises the
+  // classification helper directly.
+  const source = [
+    '// header TARGET comment', // 1  — no enclosing declaration -> 'content'
+    'package com.example.demo;', // 2
+    '', // 3
+    'import java.util.List;', // 4
+    '', // 5
+    'public class Demo {', // 6  — class
+    '    private java.util.List<String> items;', // 7 — field (generic/qualified)
+    '', // 8
+    '    void packagePrivate() {', // 9 — method (package-private, no modifier)
+    '        System.out.println("TARGET body");', // 10 — inside method body
+    '    }', // 11
+    '', // 12
+    '    public Demo(int x) {', // 13 — constructor
+    '        // ctor body', // 14
+    '    }', // 15
+    '', // 16
+    '    @Override', // 17 — annotation line of a multi-line declaration
+    '    public String greet() {', // 18 — method (signature on next line)
+    '        return "TARGET multiline";', // 19 — inside greet body
+    '    }', // 20
+    '}', // 21
+  ].join('\n');
+
+  it('classifies a header comment (no enclosing declaration) as content', () => {
+    expect(classifySearchHits(source, [1]).get(1)).toBe('content');
+  });
+
+  it('classifies a package-private method that the access-modifier regex missed', () => {
+    expect(classifySearchHits(source, [9]).get(9)).toBe('method');
+  });
+
+  it('classifies a generic/qualified-type field that the dotted-type regex missed', () => {
+    expect(classifySearchHits(source, [7]).get(7)).toBe('field');
+  });
+
+  it('classifies a constructor as a method', () => {
+    expect(classifySearchHits(source, [13]).get(13)).toBe('method');
+  });
+
+  it('classifies a hit inside a method body as the enclosing method', () => {
+    expect(classifySearchHits(source, [10]).get(10)).toBe('method');
+  });
+
+  it('classifies a hit on a multi-line declaration annotation line as method', () => {
+    // @Override sits on its own line above the signature; the old line-only
+    // regex saw no access modifier here and would have returned 'content'.
+    expect(classifySearchHits(source, [17]).get(17)).toBe('method');
+  });
+
+  it('parses the source once and resolves many hits in a single call', () => {
+    const result = classifySearchHits(source, [1, 7, 9, 10, 13, 17, 18, 19]);
+    expect(result.get(1)).toBe('content');
+    expect(result.get(7)).toBe('field');
+    expect(result.get(9)).toBe('method');
+    expect(result.get(10)).toBe('method');
+    expect(result.get(13)).toBe('method');
+    expect(result.get(17)).toBe('method');
+    expect(result.get(18)).toBe('method');
+    expect(result.get(19)).toBe('method');
+  });
+
+  it('returns an empty map for no hits and never throws', () => {
+    expect(classifySearchHits(source, []).size).toBe(0);
   });
 });

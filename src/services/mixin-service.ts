@@ -21,111 +21,632 @@ import type {
   MixinValidationResult,
   MixinValidationWarning,
 } from '../types/minecraft.js';
+import {
+  descriptorsCompatible,
+  javaTypeToDescriptor,
+  paramToDescriptor,
+  parseParamDescriptors,
+} from '../utils/descriptor-utils.js';
 import { MixinParseError } from '../utils/errors.js';
+import { extractJavaSymbols } from '../utils/java-symbols.js';
+import type {
+  AnnotationValue,
+  JavaAnnotation,
+  JavaSymbol,
+  StructuredAnnotation,
+} from '../utils/java-symbols.js';
 import { logger } from '../utils/logger.js';
 import { getDecompiledPath } from '../utils/paths.js';
 import { getDecompileService } from './decompile-service.js';
+
+// ---------------------------------------------------------------------------
+// Module-internal helpers: class correlation, descriptor matching, suggestions
+// ---------------------------------------------------------------------------
+//
+// The TARGET-source (decompiled Minecraft class) validation is tree-sitter
+// based: the target source is parsed ONCE into `JavaSymbol[]` (via
+// `extractJavaSymbols`) and injections/shadows/accessors are correlated
+// against the declared symbols. There is NO regex Java-source inspection left
+// for the target — the only string-pattern operations remaining are the
+// mixin-SOURCE annotation parsing (parseInjections/parseShadows/parseAccessors,
+// a separate follow-on) and pure JVM descriptor decode logic shared from
+// `descriptor-utils.js`.
+
+/** Shape returned by the target-source validators (errors/warnings/suggestions). */
+interface ValidationParts {
+  errors: MixinValidationError[];
+  warnings: MixinValidationWarning[];
+  suggestions: MixinSuggestion[];
+}
+
+/** Last segment (simple name) of a dot/`$`-separated class name. */
+function simpleClassName(name: string): string {
+  const parts = name.split(/[.$]/);
+  return parts[parts.length - 1] ?? name;
+}
+
+/**
+ * Correlate a (often simple-named) Mixin target class with a fully-qualified
+ * AST `declaringClass`. @Mixin targets are frequently simple names (e.g.
+ * `Entity`) resolved from a single .java file whose package makes the symbol's
+ * declaringClass fully qualified (`net.minecraft.entity.Entity`). We therefore
+ * match on a SUFFIX of dot/`$` segments, which is more lenient than AW's exact
+ * `classNamesMatch` (AW names arrive fully-qualified from the JVM). A future
+ * ASM bytecode stage will make this authoritative.
+ */
+function classMatchesTarget(target: string, declaringClass: string): boolean {
+  const t = target.split(/[.$]/);
+  const d = declaringClass.split(/[.$]/);
+  if (t.length > d.length) return false;
+  const offset = d.length - t.length;
+  for (let i = 0; i < t.length; i++) {
+    if (t[i] !== d[offset + i]) return false;
+  }
+  return true;
+}
+
+/** Build the JVM method descriptor string for an AST method/constructor symbol. */
+function buildMethodDescriptor(sym: JavaSymbol): string {
+  const params = sym.parameters ?? [];
+  return `(${params.map(paramToDescriptor).join('')})${javaTypeToDescriptor(sym.returnType ?? 'void')}`;
+}
+
+/** Compare an AST method/constructor signature against a target JVM method descriptor. */
+function methodMatchesDescriptor(sym: JavaSymbol, targetDescriptor: string): boolean {
+  const open = targetDescriptor.indexOf('(');
+  const close = targetDescriptor.indexOf(')');
+  if (open < 0 || close < 0 || close <= open) return false;
+  const targetParams = parseParamDescriptors(targetDescriptor.slice(open + 1, close));
+  const targetReturn = targetDescriptor.slice(close + 1);
+  const params = sym.parameters ?? [];
+  const astParams = params.map(paramToDescriptor);
+  if (astParams.length !== targetParams.length) return false;
+  for (let i = 0; i < astParams.length; i++) {
+    if (!descriptorsCompatible(astParams[i], targetParams[i])) return false;
+  }
+  return descriptorsCompatible(javaTypeToDescriptor(sym.returnType ?? 'void'), targetReturn);
+}
+
+/** Distinct non-constructor method names declared by the target class. */
+function methodNamesForClass(symbols: JavaSymbol[], targetClass: string): string[] {
+  const set = new Set<string>();
+  for (const s of symbols) {
+    if (
+      s.entryType === 'method' &&
+      s.isConstructor !== true &&
+      s.symbol &&
+      classMatchesTarget(targetClass, s.declaringClass)
+    ) {
+      set.add(s.symbol);
+    }
+  }
+  return [...set];
+}
+
+/** Distinct field names declared by the target class. */
+function fieldNamesForClass(symbols: JavaSymbol[], targetClass: string): string[] {
+  const set = new Set<string>();
+  for (const s of symbols) {
+    if (s.entryType === 'field' && s.symbol && classMatchesTarget(targetClass, s.declaringClass)) {
+      set.add(s.symbol);
+    }
+  }
+  return [...set];
+}
+
+/** Calculate Levenshtein distance between two strings. */
+function levenshteinDistance(a: string, b: string): number {
+  const matrix: number[][] = [];
+
+  for (let i = 0; i <= b.length; i++) {
+    matrix[i] = [i];
+  }
+  for (let j = 0; j <= a.length; j++) {
+    matrix[0][j] = j;
+  }
+
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b.charAt(i - 1) === a.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j] + 1,
+        );
+      }
+    }
+  }
+
+  return matrix[b.length][a.length];
+}
+
+/** Check if two strings are similar (used for class-name suggestions). */
+function isSimilar(a: string, b: string): boolean {
+  const distance = levenshteinDistance(a.toLowerCase(), b.toLowerCase());
+  return (
+    distance <= 3 ||
+    b.toLowerCase().includes(a.toLowerCase()) ||
+    a.toLowerCase().includes(b.toLowerCase())
+  );
+}
+
+/** Find similar strings using Levenshtein distance (used for member suggestions). */
+function findSimilar(target: string, candidates: string[], maxDistance = 3): string[] {
+  return candidates
+    .map((c) => ({
+      name: c,
+      distance: levenshteinDistance(target.toLowerCase(), c.toLowerCase()),
+    }))
+    .filter((c) => c.distance <= maxDistance)
+    .sort((a, b) => a.distance - b.distance)
+    .map((c) => c.name);
+}
+
+/**
+ * Validate an injection against the target class's AST symbols. Pure: no I/O.
+ *
+ * Resolves the injection target by name (and, when a JVM descriptor is present,
+ * by overload), including `<init>`/class-name constructors which the old
+ * `\b<init>\s*\(` regex could never match in decompiled source (where ctors
+ * are named after the class). Only DECLARED members are seen here — call sites
+ * and comments are not, so a method that is merely called (but not declared)
+ * is correctly reported as missing.
+ */
+function validateInjectionAgainstSymbols(
+  injection: MixinInjection,
+  symbols: JavaSymbol[],
+  targetClass: string,
+): ValidationParts {
+  const errors: MixinValidationError[] = [];
+  const warnings: MixinValidationWarning[] = [];
+  const suggestions: MixinSuggestion[] = [];
+
+  if (!injection.targetMethod) {
+    return { errors, warnings, suggestions };
+  }
+
+  // Method name + optional JVM descriptor: "foo", "foo(II)V", "<init>(II)V".
+  const openParen = injection.targetMethod.indexOf('(');
+  const methodName =
+    openParen >= 0 ? injection.targetMethod.slice(0, openParen) : injection.targetMethod;
+  const descriptor = openParen >= 0 ? injection.targetMethod.slice(openParen) : null;
+
+  // Static initializer is not emitted by the AST walk — warn instead of erroring.
+  if (methodName === '<clinit>') {
+    warnings.push({
+      type: 'fragile_injection',
+      message:
+        "'<clinit>' (static initializer) cannot be validated from decompiled source — verify manually",
+      element: injection,
+      line: injection.line,
+    });
+    return { errors, warnings, suggestions };
+  }
+
+  const targetSimple = simpleClassName(targetClass);
+  // Mixin constructors are referenced as "<init>" or by the class simple name.
+  const isCtor = methodName === '<init>' || methodName === targetSimple;
+
+  const candidates = isCtor
+    ? symbols.filter(
+        (s) =>
+          s.entryType === 'method' &&
+          s.isConstructor === true &&
+          classMatchesTarget(targetClass, s.declaringClass),
+      )
+    : symbols.filter(
+        (s) =>
+          s.entryType === 'method' &&
+          s.isConstructor !== true &&
+          s.symbol === methodName &&
+          classMatchesTarget(targetClass, s.declaringClass),
+      );
+
+  if (candidates.length === 0) {
+    errors.push({
+      type: 'method_not_found',
+      message: `Target ${isCtor ? 'constructor' : 'method'} '${methodName}' not found in ${targetClass}`,
+      element: injection,
+      line: injection.line,
+    });
+    const pool = isCtor
+      ? [...methodNamesForClass(symbols, targetClass), targetSimple]
+      : methodNamesForClass(symbols, targetClass);
+    const similar = findSimilar(methodName, pool);
+    if (similar.length > 0) {
+      suggestions.push({
+        type: 'fix_method',
+        message: `Similar methods in target: ${similar.slice(0, 3).join(', ')}`,
+        element: injection,
+        line: injection.line,
+      });
+    }
+    return { errors, warnings, suggestions };
+  }
+
+  // Overload resolution when a descriptor is present. Note: the error type is
+  // `signature_mismatch` because `method_overload_not_found` is not part of the
+  // (locked) MixinValidationError union — `signature_mismatch` is the closest
+  // existing type for "method exists but descriptor disagrees".
+  if (descriptor) {
+    const matched = candidates.filter((c) => methodMatchesDescriptor(c, descriptor));
+    if (matched.length === 0) {
+      const found = candidates.map(buildMethodDescriptor).join(', ');
+      errors.push({
+        type: 'signature_mismatch',
+        message: `Target method '${methodName}' exists but no overload matches descriptor ${descriptor} (found: ${found})`,
+        element: injection,
+        line: injection.line,
+      });
+      return { errors, warnings, suggestions };
+    }
+  }
+
+  // Warn about HEAD injections in constructors (kept from the original logic).
+  if (injection.at === 'HEAD' && methodName === '<init>') {
+    warnings.push({
+      type: 'fragile_injection',
+      message:
+        'Injecting at HEAD of constructor is fragile - consider using @Inject with at = @At(value = "INVOKE", target = "super()")',
+      element: injection,
+      line: injection.line,
+    });
+  }
+
+  return { errors, warnings, suggestions };
+}
+
+/**
+ * Validate a @Shadow against the target class's AST symbols. Pure: no I/O.
+ * Method shadows resolve by name; field shadows resolve by name. Shadow `type`
+ * is loosely populated by the mixin-source parser, so name-match is the
+ * baseline and any descriptor it carries is not strictly enforced.
+ */
+function validateShadowAgainstSymbols(
+  shadow: MixinShadow,
+  symbols: JavaSymbol[],
+  targetClass: string,
+): ValidationParts {
+  const errors: MixinValidationError[] = [];
+  const warnings: MixinValidationWarning[] = [];
+  const suggestions: MixinSuggestion[] = [];
+
+  const targetSimple = simpleClassName(targetClass);
+  const isCtor = shadow.name === '<init>' || shadow.name === targetSimple;
+
+  if (shadow.isMethod || isCtor) {
+    const candidates = isCtor
+      ? symbols.filter(
+          (s) =>
+            s.entryType === 'method' &&
+            s.isConstructor === true &&
+            classMatchesTarget(targetClass, s.declaringClass),
+        )
+      : symbols.filter(
+          (s) =>
+            s.entryType === 'method' &&
+            s.isConstructor !== true &&
+            s.symbol === shadow.name &&
+            classMatchesTarget(targetClass, s.declaringClass),
+        );
+
+    if (candidates.length === 0) {
+      errors.push({
+        type: 'shadow_not_found',
+        message: `Shadow ${isCtor ? 'constructor' : 'method'} '${shadow.name}' not found in ${targetClass}`,
+        element: shadow,
+        line: shadow.line,
+      });
+      const similar = findSimilar(shadow.name, methodNamesForClass(symbols, targetClass));
+      if (similar.length > 0) {
+        suggestions.push({
+          type: 'fix_method',
+          message: `Similar methods: ${similar.slice(0, 3).join(', ')}`,
+          element: shadow,
+          line: shadow.line,
+        });
+      }
+    }
+  } else {
+    const candidates = symbols.filter(
+      (s) =>
+        s.entryType === 'field' &&
+        s.symbol === shadow.name &&
+        classMatchesTarget(targetClass, s.declaringClass),
+    );
+
+    if (candidates.length === 0) {
+      errors.push({
+        type: 'shadow_not_found',
+        message: `Shadow field '${shadow.name}' not found in ${targetClass}`,
+        element: shadow,
+        line: shadow.line,
+      });
+      const similar = findSimilar(shadow.name, fieldNamesForClass(symbols, targetClass));
+      if (similar.length > 0) {
+        suggestions.push({
+          type: 'fix_method',
+          message: `Similar fields: ${similar.slice(0, 3).join(', ')}`,
+          element: shadow,
+          line: shadow.line,
+        });
+      }
+    }
+  }
+
+  return { errors, warnings, suggestions };
+}
+
+/**
+ * Validate a @Accessor/@Invoker against the target class's AST symbols. Pure.
+ * Invokers target methods; accessors target fields.
+ */
+function validateAccessorAgainstSymbols(
+  accessor: MixinAccessor,
+  symbols: JavaSymbol[],
+  targetClass: string,
+): ValidationParts {
+  const errors: MixinValidationError[] = [];
+  const warnings: MixinValidationWarning[] = [];
+  const suggestions: MixinSuggestion[] = [];
+
+  const targetSimple = simpleClassName(targetClass);
+  const isCtor = accessor.target === '<init>' || accessor.target === targetSimple;
+
+  if (accessor.isInvoker || isCtor) {
+    const candidates = isCtor
+      ? symbols.filter(
+          (s) =>
+            s.entryType === 'method' &&
+            s.isConstructor === true &&
+            classMatchesTarget(targetClass, s.declaringClass),
+        )
+      : symbols.filter(
+          (s) =>
+            s.entryType === 'method' &&
+            s.isConstructor !== true &&
+            s.symbol === accessor.target &&
+            classMatchesTarget(targetClass, s.declaringClass),
+        );
+
+    if (candidates.length === 0) {
+      errors.push({
+        type: 'shadow_not_found',
+        message: `Invoker target '${accessor.target}' not found in ${targetClass}`,
+        element: accessor,
+        line: accessor.line,
+      });
+    }
+  } else {
+    const candidates = symbols.filter(
+      (s) =>
+        s.entryType === 'field' &&
+        s.symbol === accessor.target &&
+        classMatchesTarget(targetClass, s.declaringClass),
+    );
+
+    if (candidates.length === 0) {
+      errors.push({
+        type: 'shadow_not_found',
+        message: `Accessor target '${accessor.target}' not found in ${targetClass}`,
+        element: accessor,
+        line: accessor.line,
+      });
+    }
+  }
+
+  return { errors, warnings, suggestions };
+}
+
+/**
+ * Validate an injection against a synthetic Java source string. Test seam for
+ * the tree-sitter + descriptor-matching validator — lets unit tests exercise
+ * validation without a decompiled Minecraft source tree. Production validation
+ * reads the target class file, extracts symbols once, and delegates to
+ * `validateInjectionAgainstSymbols`.
+ *
+ * @internal
+ */
+export function validateInjectionAgainstSource(
+  injection: MixinInjection,
+  targetSource: string,
+  targetClass: string,
+): ValidationParts {
+  return validateInjectionAgainstSymbols(injection, extractJavaSymbols(targetSource), targetClass);
+}
+
+/** @internal */
+export function validateShadowAgainstSource(
+  shadow: MixinShadow,
+  targetSource: string,
+  targetClass: string,
+): ValidationParts {
+  return validateShadowAgainstSymbols(shadow, extractJavaSymbols(targetSource), targetClass);
+}
+
+/** @internal */
+export function validateAccessorAgainstSource(
+  accessor: MixinAccessor,
+  targetSource: string,
+  targetClass: string,
+): ValidationParts {
+  return validateAccessorAgainstSymbols(accessor, extractJavaSymbols(targetSource), targetClass);
+}
+
+// ---------------------------------------------------------------------------
+// Module-internal helpers: mixin-SOURCE annotation parsing
+// ---------------------------------------------------------------------------
+//
+// These operate on the structured annotation model produced by
+// `extractJavaSymbols` (see `src/utils/java-symbols.ts` and
+// `docs/ref/mixin-annotation-ast.md`). They contain NO regex — every
+// annotation argument (method, at, cancellable, priority, class targets, ...)
+// is read from the typed `AnnotationValue` discriminated union.
+
+/** Simple name (last dotted segment) of an annotation descriptor. */
+function annotationSimpleName(descriptor: string): string {
+  const idx = descriptor.lastIndexOf('.');
+  return idx >= 0 ? descriptor.slice(idx + 1) : descriptor;
+}
+
+/**
+ * Collect @Mixin target class names from every argument form the structured
+ * annotation model exposes: the bare single-arg shorthand (@Mixin(Entity.class),
+ * @Mixin({A.class, B.class})) and the named-value form (@Mixin(value = X.class),
+ * @Mixin(value = {A.class}, priority = 500)). Names are returned AS WRITTEN
+ * (simple `Entity` or qualified `net.minecraft.entity.LivingEntity`).
+ */
+function collectClassTargets(parsed: StructuredAnnotation): string[] {
+  const out: string[] = [];
+  const collect = (v: AnnotationValue): void => {
+    if (v.kind === 'class') {
+      out.push(v.value);
+    } else if (v.kind === 'array') {
+      for (const item of v.value) collect(item);
+    }
+  };
+  if (parsed.elementValue) collect(parsed.elementValue);
+  const valuePair = parsed.elementValuePairs.value;
+  if (valuePair) collect(valuePair);
+  return out;
+}
+
+/**
+ * Read a string value from a nested annotation, accepting either the bare
+ * single-arg form (@At("HEAD") -> elementValue) or the named form
+ * (@At(value = "INVOKE")) -> elementValuePairs.value).
+ */
+function nestedAnnoStringValue(nested: StructuredAnnotation, key: string): string | undefined {
+  const pairVal = nested.elementValuePairs[key];
+  if (pairVal?.kind === 'string') return pairVal.value;
+  if (key === 'value' && nested.elementValue?.kind === 'string') {
+    return nested.elementValue.value;
+  }
+  return undefined;
+}
+
+/**
+ * Infer an @Accessor/@Invoker target name from the accessor/invoker method
+ * name: strip the get/set/is (accessor) or invoke/call (invoker) prefix and
+ * lowercase the first remaining char.
+ */
+function inferAccessorTarget(methodName: string, isInvoker: boolean): string {
+  // Strip the accessor/invoker name prefix by plain string matching (no regex):
+  // get/set/is for accessors, invoke/call for invokers — first matching prefix wins.
+  const prefixes = isInvoker ? ['invoke', 'call'] : ['get', 'set', 'is'];
+  for (const prefix of prefixes) {
+    if (methodName.startsWith(prefix)) {
+      const rest = methodName.slice(prefix.length);
+      return rest ? `${rest.charAt(0).toLowerCase()}${rest.slice(1)}` : methodName;
+    }
+  }
+  return methodName;
+}
+
+/**
+ * Serialize a structured annotation value back to a readable source-ish form,
+ * used to populate `MixinInjection.rawAnnotation` for diagnostics. Best-effort:
+ * the structured model is authoritative, this string is just for human display.
+ */
+function serializeAnnotationValue(v: AnnotationValue): string {
+  switch (v.kind) {
+    case 'string':
+      return `"${v.value}"`;
+    case 'class':
+      return `${v.value}.class`;
+    case 'boolean':
+    case 'number':
+      return String(v.value);
+    case 'array':
+      return `{${v.value.map(serializeAnnotationValue).join(', ')}}`;
+    case 'annotation':
+      return reconstructAnnotation(annotationSimpleName(v.value.name), v.value);
+  }
+}
+
+/** Reconstruct a readable `@Name(...)` form from a parsed annotation. */
+function reconstructAnnotation(
+  simpleName: string,
+  parsed: StructuredAnnotation | undefined,
+): string {
+  if (!parsed) return `@${simpleName}`;
+  const parts: string[] = [];
+  if (parsed.elementValue) parts.push(serializeAnnotationValue(parsed.elementValue));
+  for (const [k, val] of Object.entries(parsed.elementValuePairs)) {
+    parts.push(`${k} = ${serializeAnnotationValue(val)}`);
+  }
+  return parts.length > 0 ? `@${simpleName}(${parts.join(', ')})` : `@${simpleName}`;
+}
 
 /**
  * Mixin Analysis Service
  */
 export class MixinService {
   /**
-   * Parse a single mixin Java source file
+   * Parse a single mixin Java source file via the tree-sitter AST.
+   *
+   * Replaces the legacy line-scanning regex pipeline. The source is parsed once
+   * into `JavaSymbol[]`; the first class carrying an `@Mixin` annotation drives
+   * target/priority extraction (from the structured annotation model), and this
+   * mixin's direct + nested-class members feed the injection/shadow/accessor
+   * parsers. Returns `null` when no `@Mixin` class (with resolvable targets) is
+   * found.
    */
   parseMixinSource(source: string, sourcePath?: string): MixinClass | null {
-    const lines = source.split('\n');
+    const symbols = extractJavaSymbols(source);
 
-    // Find @Mixin annotation - may span multiple lines
-    let mixinAnnotationLine = -1;
-    const mixinTargets: string[] = [];
-    let priority = 1000; // Default priority
-    let annotationText = '';
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-
-      // Look for @Mixin annotation start
-      if (line.includes('@Mixin')) {
-        mixinAnnotationLine = i;
-
-        // Build complete annotation (may span multiple lines)
-        annotationText = line;
-        let j = i;
-        let parenCount = (line.match(/\(/g) || []).length - (line.match(/\)/g) || []).length;
-
-        while (parenCount > 0 && j < lines.length - 1) {
-          j++;
-          annotationText += ` ${lines[j]}`;
-          parenCount += (lines[j].match(/\(/g) || []).length - (lines[j].match(/\)/g) || []).length;
-        }
-
-        // Extract content inside @Mixin(...)
-        const mixinMatch = annotationText.match(/@Mixin\s*\(\s*([\s\S]*?)\s*\)(?:\s|$)/);
-        if (mixinMatch) {
-          const annotationContent = mixinMatch[1];
-
-          // Parse targets - handle both single class and array
-          // @Mixin(Entity.class) or @Mixin({Entity.class, LivingEntity.class}) or @Mixin(value = {...}, priority = 500)
-
-          // Extract class names - match ClassName.class patterns
-          const classMatches = annotationContent.matchAll(/([A-Z][\w.]*?)\.class/g);
-          for (const match of classMatches) {
-            mixinTargets.push(match[1]);
-          }
-
-          // Parse priority
-          const priorityMatch = annotationContent.match(/priority\s*=\s*(\d+)/);
-          if (priorityMatch) {
-            priority = Number.parseInt(priorityMatch[1], 10);
-          }
-        }
+    // Find the first @Mixin class.
+    let mixinClass: JavaSymbol | undefined;
+    let mixinAnno: JavaAnnotation | undefined;
+    for (const s of symbols) {
+      if (s.entryType !== 'class') continue;
+      const anno = s.annotations?.find((a) => annotationSimpleName(a.descriptor) === 'Mixin');
+      if (anno) {
+        mixinClass = s;
+        mixinAnno = anno;
         break;
       }
     }
 
-    if (mixinAnnotationLine === -1 || mixinTargets.length === 0) {
+    if (!mixinClass || !mixinAnno?.parsed) {
       return null; // Not a mixin file
     }
 
-    // Find class name
-    let className = '';
-    for (let i = mixinAnnotationLine; i < lines.length; i++) {
-      const classMatch = lines[i].match(/(?:public\s+)?(?:abstract\s+)?class\s+(\w+)/);
-      if (classMatch) {
-        className = classMatch[1];
-        break;
-      }
+    const parsed = mixinAnno.parsed;
+    const targets = collectClassTargets(parsed);
+    if (targets.length === 0) {
+      return null; // @Mixin with no resolvable target classes
     }
 
-    if (!className) {
-      return null;
-    }
+    const priority =
+      parsed.elementValuePairs.priority?.kind === 'number'
+        ? parsed.elementValuePairs.priority.value
+        : 1000; // Default priority
 
-    // Find package
-    let packageName = '';
-    for (const line of lines) {
-      const packageMatch = line.match(/^package\s+([\w.]+);/);
-      if (packageMatch) {
-        packageName = packageMatch[1];
-        break;
-      }
-    }
+    // Fully-qualified mixin class name (replaces the old package + class regex).
+    const mixinClassName = mixinClass.declaringClass;
 
-    const fullClassName = packageName ? `${packageName}.${className}` : className;
+    // Collect this mixin's members: direct members plus members of nested mixin
+    // classes (whose declaringClass is `mixinClassName.<Nested>`).
+    const members = symbols.filter(
+      (s) =>
+        s.declaringClass === mixinClassName || s.declaringClass.startsWith(`${mixinClassName}.`),
+    );
 
     // Parse injections
-    const injections = this.parseInjections(lines);
+    const injections = this.parseInjections(members);
 
     // Parse shadows
-    const shadows = this.parseShadows(lines);
+    const shadows = this.parseShadows(members);
 
     // Parse accessors
-    const accessors = this.parseAccessors(lines);
+    const accessors = this.parseAccessors(members);
 
     return {
-      className: fullClassName,
-      targets: mixinTargets,
+      className: mixinClassName,
+      targets,
       priority,
       injections,
       shadows,
@@ -135,80 +656,72 @@ export class MixinService {
   }
 
   /**
-   * Parse @Inject, @Redirect, @ModifyArg, etc. annotations
+   * Parse @Inject, @Redirect, @ModifyArg, etc. annotations from the mixin's
+   * method members via the structured annotation model. Each injection is read
+   * from its annotation's typed arguments (method, at, cancellable) — no regex,
+   * no paren/brace counting.
    */
-  private parseInjections(lines: string[]): MixinInjection[] {
+  private parseInjections(members: JavaSymbol[]): MixinInjection[] {
     const injections: MixinInjection[] = [];
 
     const injectionTypes: Record<string, MixinInjectionType> = {
-      '@Inject': 'inject',
-      '@Redirect': 'redirect',
-      '@ModifyArg': 'modify_arg',
-      '@ModifyVariable': 'modify_variable',
-      '@ModifyConstant': 'modify_constant',
-      '@ModifyReturnValue': 'modify_return_value',
-      '@WrapOperation': 'wrap_operation',
-      '@WrapMethod': 'wrap_method',
+      Inject: 'inject',
+      Redirect: 'redirect',
+      ModifyArg: 'modify_arg',
+      ModifyVariable: 'modify_variable',
+      ModifyConstant: 'modify_constant',
+      ModifyReturnValue: 'modify_return_value',
+      WrapOperation: 'wrap_operation',
+      WrapMethod: 'wrap_method',
     };
 
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
+    for (const member of members) {
+      if (member.entryType !== 'method') continue;
+      for (const anno of member.annotations ?? []) {
+        const simple = annotationSimpleName(anno.descriptor);
+        const type = injectionTypes[simple];
+        if (!type) continue;
 
-      for (const [annotation, type] of Object.entries(injectionTypes)) {
-        if (line.includes(annotation)) {
-          // Build the full annotation text (may span multiple lines)
-          let annotationText = line;
-          let j = i;
-          let parenCount =
-            (annotationText.match(/\(/g) || []).length - (annotationText.match(/\)/g) || []).length;
+        const parsed = anno.parsed;
+        const pairs = parsed?.elementValuePairs ?? {};
 
-          while (parenCount > 0 && j < lines.length - 1) {
-            j++;
-            annotationText += `\n${lines[j]}`;
-            parenCount +=
-              (lines[j].match(/\(/g) || []).length - (lines[j].match(/\)/g) || []).length;
-          }
-
-          // Find the method name (next line with method signature)
-          let methodName = '';
-          for (let k = j + 1; k < Math.min(j + 5, lines.length); k++) {
-            const methodMatch = lines[k].match(
-              /(?:private|public|protected)?\s*(?:static\s+)?(?:void|[\w<>,\[\]]+)\s+(\w+)\s*\(/,
-            );
-            if (methodMatch) {
-              methodName = methodMatch[1];
-              break;
-            }
-          }
-
-          // Parse method target
-          const methodTargetMatch = annotationText.match(/method\s*=\s*["']([^"']+)["']/);
-          const targetMethod = methodTargetMatch ? methodTargetMatch[1] : '';
-
-          // Parse @At
-          const atMatch = annotationText.match(/@At\s*\(\s*(?:value\s*=\s*)?["'](\w+)["']/);
-          const at = atMatch ? atMatch[1] : undefined;
-
-          // Parse @At target
-          const atTargetMatch = annotationText.match(/@At\s*\([^)]*target\s*=\s*["']([^"']+)["']/);
-          const atTarget = atTargetMatch ? atTargetMatch[1] : undefined;
-
-          // Parse cancellable
-          const cancellable =
-            annotationText.includes('cancellable = true') ||
-            annotationText.includes('cancellable=true');
-
-          injections.push({
-            type,
-            methodName,
-            targetMethod,
-            at,
-            atTarget,
-            cancellable,
-            line: i + 1,
-            rawAnnotation: annotationText.trim(),
-          });
+        // method target: single string, or first string of an array (legacy
+        // first-match behavior; the descriptor validator resolves one at a time).
+        let targetMethod = '';
+        const methodArg = pairs.method;
+        if (methodArg?.kind === 'string') {
+          targetMethod = methodArg.value;
+        } else if (methodArg?.kind === 'array') {
+          const first = methodArg.value.find((v) => v.kind === 'string');
+          if (first?.kind === 'string') targetMethod = first.value;
         }
+
+        // @At nested annotation: bare value (@At("HEAD")) or value=...
+        // (@At(value="INVOKE", target="...")).
+        let at: string | undefined;
+        let atTarget: string | undefined;
+        const atArg = pairs.at;
+        if (atArg?.kind === 'annotation') {
+          const nested = atArg.value;
+          at = nestedAnnoStringValue(nested, 'value');
+          const atTargetVal = nested.elementValuePairs.target;
+          if (atTargetVal?.kind === 'string') atTarget = atTargetVal.value;
+        }
+
+        // cancellable boolean (meaningful for @Inject, harmless to read for all).
+        let cancellable: boolean | undefined;
+        if (pairs.cancellable?.kind === 'boolean') cancellable = pairs.cancellable.value;
+
+        injections.push({
+          type,
+          methodName: member.symbol,
+          targetMethod,
+          at,
+          atTarget,
+          cancellable,
+          line: member.line,
+          rawAnnotation: reconstructAnnotation(simple, parsed),
+        });
       }
     }
 
@@ -216,104 +729,69 @@ export class MixinService {
   }
 
   /**
-   * Parse @Shadow annotations
+   * Parse @Shadow annotations from the mixin's field/method members via the
+   * structured annotation model. Detects both field and method shadows and
+   * carries the declared type (returnType for methods, fieldType for fields) —
+   * which the AST captures correctly even when the type is qualified or generic
+   * (the legacy regex's `[\w<>,\[\]]+` class dropped dots, so e.g.
+   * `java.util.List<String>` was silently mis-parsed).
    */
-  private parseShadows(lines: string[]): MixinShadow[] {
+  private parseShadows(members: JavaSymbol[]): MixinShadow[] {
     const shadows: MixinShadow[] = [];
 
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-
-      if (line.includes('@Shadow')) {
-        // Look at the next few lines for the field/method declaration
-        for (let j = i + 1; j < Math.min(i + 3, lines.length); j++) {
-          const nextLine = lines[j].trim();
-
-          // Skip empty lines and more annotations
-          if (!nextLine || nextLine.startsWith('@')) continue;
-
-          // Check for method (has parentheses)
-          const methodMatch = nextLine.match(
-            /(?:private|public|protected)?\s*(?:static\s+)?(?:native\s+)?(?:abstract\s+)?([\w<>,\[\]]+)\s+(\w+)\s*\(/,
-          );
-          if (methodMatch) {
-            shadows.push({
-              name: methodMatch[2],
-              type: methodMatch[1],
-              isMethod: true,
-              line: j + 1,
-            });
-            break;
-          }
-
-          // Check for field
-          const fieldMatch = nextLine.match(
-            /(?:private|public|protected)?\s*(?:static\s+)?(?:final\s+)?([\w<>,\[\]]+)\s+(\w+)\s*[;=]/,
-          );
-          if (fieldMatch) {
-            shadows.push({
-              name: fieldMatch[2],
-              type: fieldMatch[1],
-              isMethod: false,
-              line: j + 1,
-            });
-            break;
-          }
-        }
-      }
+    for (const member of members) {
+      const hasShadow = member.annotations?.some(
+        (a) => annotationSimpleName(a.descriptor) === 'Shadow',
+      );
+      if (!hasShadow) continue;
+      const isMethod = member.entryType === 'method';
+      shadows.push({
+        name: member.symbol,
+        type: isMethod ? (member.returnType ?? '') : (member.fieldType ?? ''),
+        isMethod,
+        line: member.line,
+      });
     }
 
     return shadows;
   }
 
   /**
-   * Parse @Accessor and @Invoker annotations
+   * Parse @Accessor and @Invoker annotations from the mixin's method members
+   * via the structured annotation model. An explicit bare-arg target
+   * (@Accessor("size")) wins; otherwise the target is inferred from the accessor
+   * method name (strip get/set/is or invoke/call, lowercase the first char).
    */
-  private parseAccessors(lines: string[]): MixinAccessor[] {
+  private parseAccessors(members: JavaSymbol[]): MixinAccessor[] {
     const accessors: MixinAccessor[] = [];
 
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      const isAccessor = line.includes('@Accessor');
-      const isInvoker = line.includes('@Invoker');
+    for (const member of members) {
+      if (member.entryType !== 'method') continue;
+      const anno = member.annotations?.find(
+        (a) =>
+          annotationSimpleName(a.descriptor) === 'Accessor' ||
+          annotationSimpleName(a.descriptor) === 'Invoker',
+      );
+      if (!anno) continue;
+      const simple = annotationSimpleName(anno.descriptor);
+      const isInvoker = simple === 'Invoker';
 
-      if (isAccessor || isInvoker) {
-        // Parse the target from annotation if specified
-        const targetMatch = line.match(/@(?:Accessor|Invoker)\s*\(\s*["'](\w+)["']\s*\)/);
-        let target = targetMatch ? targetMatch[1] : '';
+      // Explicit target from the bare single-arg shorthand: @Accessor("size").
+      let target = '';
+      const ev = anno.parsed?.elementValue;
+      if (ev?.kind === 'string') target = ev.value;
 
-        // Look for the method declaration
-        for (let j = i + 1; j < Math.min(i + 3, lines.length); j++) {
-          const nextLine = lines[j].trim();
-          if (!nextLine || nextLine.startsWith('@')) continue;
-
-          const methodMatch = nextLine.match(/([\w<>,\[\]]+)\s+(\w+)\s*\(/);
-          if (methodMatch) {
-            const methodName = methodMatch[2];
-
-            // Infer target from method name if not specified
-            if (!target) {
-              if (isAccessor) {
-                // getFieldName -> fieldName, setFieldName -> fieldName
-                target = methodName.replace(/^(get|set|is)/, '');
-                target = target.charAt(0).toLowerCase() + target.slice(1);
-              } else {
-                // invokeMethodName -> methodName
-                target = methodName.replace(/^(invoke|call)/, '');
-                target = target.charAt(0).toLowerCase() + target.slice(1);
-              }
-            }
-
-            accessors.push({
-              name: methodName,
-              target,
-              isInvoker,
-              line: j + 1,
-            });
-            break;
-          }
-        }
+      // Infer from the accessor method name when no explicit target is given.
+      if (!target) {
+        target = inferAccessorTarget(member.symbol, isInvoker);
       }
+
+      accessors.push({
+        name: member.symbol,
+        target,
+        isInvoker,
+        line: member.line,
+      });
     }
 
     return accessors;
@@ -356,17 +834,6 @@ export class MixinService {
           }
         } catch (error) {
           logger.warn(`Failed to parse mixin from ${entry.entryName}:`, error);
-        }
-      }
-    }
-
-    // Also check for decompiled class files (if remapped)
-    for (const entry of entries) {
-      if (entry.entryName.endsWith('.class') && !entry.entryName.includes('$')) {
-        // Try to find corresponding source
-        const sourceName = entry.entryName.replace('.class', '.java');
-        const sourceEntry = entries.find((e) => e.entryName === sourceName);
-        if (sourceEntry) {
         }
       }
     }
@@ -461,12 +928,14 @@ export class MixinService {
           });
         }
       } else {
-        // Target exists, validate injections against it
+        // Target exists — parse its source ONCE into AST symbols and validate
+        // every injection/shadow/accessor against those declared symbols.
         const targetSource = readFileSync(targetPath, 'utf8');
+        const symbols = extractJavaSymbols(targetSource);
 
         // Validate each injection
         for (const injection of mixin.injections) {
-          const validationResult = this.validateInjection(injection, targetSource, target);
+          const validationResult = validateInjectionAgainstSymbols(injection, symbols, target);
           errors.push(...validationResult.errors);
           warnings.push(...validationResult.warnings);
           suggestions.push(...validationResult.suggestions);
@@ -474,7 +943,7 @@ export class MixinService {
 
         // Validate shadows
         for (const shadow of mixin.shadows) {
-          const validationResult = this.validateShadow(shadow, targetSource, target);
+          const validationResult = validateShadowAgainstSymbols(shadow, symbols, target);
           errors.push(...validationResult.errors);
           warnings.push(...validationResult.warnings);
           suggestions.push(...validationResult.suggestions);
@@ -482,7 +951,7 @@ export class MixinService {
 
         // Validate accessors
         for (const accessor of mixin.accessors) {
-          const validationResult = this.validateAccessor(accessor, targetSource, target);
+          const validationResult = validateAccessorAgainstSymbols(accessor, symbols, target);
           errors.push(...validationResult.errors);
           warnings.push(...validationResult.warnings);
           suggestions.push(...validationResult.suggestions);
@@ -520,146 +989,6 @@ export class MixinService {
   }
 
   /**
-   * Validate an injection against target source
-   */
-  private validateInjection(
-    injection: MixinInjection,
-    targetSource: string,
-    targetClass: string,
-  ): {
-    errors: MixinValidationError[];
-    warnings: MixinValidationWarning[];
-    suggestions: MixinSuggestion[];
-  } {
-    const errors: MixinValidationError[] = [];
-    const warnings: MixinValidationWarning[] = [];
-    const suggestions: MixinSuggestion[] = [];
-
-    if (!injection.targetMethod) {
-      return { errors, warnings, suggestions };
-    }
-
-    // Extract method name from target (may include descriptor)
-    const methodName = injection.targetMethod.split('(')[0];
-
-    // Check if method exists in target
-    const methodRegex = new RegExp(`\\b${methodName}\\s*\\(`);
-    if (!methodRegex.test(targetSource)) {
-      errors.push({
-        type: 'method_not_found',
-        message: `Target method '${methodName}' not found in ${targetClass}`,
-        element: injection,
-        line: injection.line,
-      });
-
-      // Find similar methods
-      const methods = this.extractMethodNames(targetSource);
-      const similar = this.findSimilar(methodName, methods);
-      if (similar.length > 0) {
-        suggestions.push({
-          type: 'fix_method',
-          message: `Similar methods in target: ${similar.slice(0, 3).join(', ')}`,
-          element: injection,
-          line: injection.line,
-        });
-      }
-    }
-
-    // Warn about HEAD injections in constructors
-    if (injection.at === 'HEAD' && methodName === '<init>') {
-      warnings.push({
-        type: 'fragile_injection',
-        message:
-          'Injecting at HEAD of constructor is fragile - consider using @Inject with at = @At(value = "INVOKE", target = "super()")',
-        element: injection,
-        line: injection.line,
-      });
-    }
-
-    return { errors, warnings, suggestions };
-  }
-
-  /**
-   * Validate a shadow against target source
-   */
-  private validateShadow(
-    shadow: MixinShadow,
-    targetSource: string,
-    targetClass: string,
-  ): {
-    errors: MixinValidationError[];
-    warnings: MixinValidationWarning[];
-    suggestions: MixinSuggestion[];
-  } {
-    const errors: MixinValidationError[] = [];
-    const warnings: MixinValidationWarning[] = [];
-    const suggestions: MixinSuggestion[] = [];
-
-    // Check if the shadowed field/method exists
-    const pattern = shadow.isMethod
-      ? new RegExp(`\\b${shadow.name}\\s*\\(`)
-      : new RegExp(`\\b${shadow.name}\\s*[;=]`);
-
-    if (!pattern.test(targetSource)) {
-      errors.push({
-        type: 'shadow_not_found',
-        message: `Shadow ${shadow.isMethod ? 'method' : 'field'} '${shadow.name}' not found in ${targetClass}`,
-        element: shadow,
-        line: shadow.line,
-      });
-
-      // Find similar names
-      const names = shadow.isMethod
-        ? this.extractMethodNames(targetSource)
-        : this.extractFieldNames(targetSource);
-      const similar = this.findSimilar(shadow.name, names);
-      if (similar.length > 0) {
-        suggestions.push({
-          type: 'fix_method',
-          message: `Similar ${shadow.isMethod ? 'methods' : 'fields'}: ${similar.slice(0, 3).join(', ')}`,
-          element: shadow,
-          line: shadow.line,
-        });
-      }
-    }
-
-    return { errors, warnings, suggestions };
-  }
-
-  /**
-   * Validate an accessor against target source
-   */
-  private validateAccessor(
-    accessor: MixinAccessor,
-    targetSource: string,
-    targetClass: string,
-  ): {
-    errors: MixinValidationError[];
-    warnings: MixinValidationWarning[];
-    suggestions: MixinSuggestion[];
-  } {
-    const errors: MixinValidationError[] = [];
-    const warnings: MixinValidationWarning[] = [];
-    const suggestions: MixinSuggestion[] = [];
-
-    // Check if target exists
-    const pattern = accessor.isInvoker
-      ? new RegExp(`\\b${accessor.target}\\s*\\(`)
-      : new RegExp(`\\b${accessor.target}\\s*[;=]`);
-
-    if (!pattern.test(targetSource)) {
-      errors.push({
-        type: 'shadow_not_found',
-        message: `${accessor.isInvoker ? 'Invoker' : 'Accessor'} target '${accessor.target}' not found in ${targetClass}`,
-        element: accessor,
-        line: accessor.line,
-      });
-    }
-
-    return { errors, warnings, suggestions };
-  }
-
-  /**
    * Convert class name to file path
    */
   private classNameToPath(className: string, basePath: string): string {
@@ -693,8 +1022,10 @@ export class MixinService {
             return fullPath;
           }
         }
-      } catch {
-        // Ignore permission errors
+      } catch (err) {
+        logger.debug(
+          `findClassFile: error reading directory: ${err instanceof Error ? err.message : err}`,
+        );
       }
       return null;
     };
@@ -724,100 +1055,20 @@ export class MixinService {
             search(fullPath, prefix ? `${prefix}.${entry.name}` : entry.name);
           } else if (entry.name.endsWith('.java')) {
             const name = entry.name.replace('.java', '');
-            if (this.isSimilar(simpleName, name)) {
+            if (isSimilar(simpleName, name)) {
               similar.push(prefix ? `${prefix}.${name}` : name);
             }
           }
         }
-      } catch {
-        // Ignore
+      } catch (err) {
+        logger.debug(
+          `findSimilarClasses: error walking directory: ${err instanceof Error ? err.message : err}`,
+        );
       }
     };
 
     search(basePath, '');
     return similar.slice(0, limit);
-  }
-
-  /**
-   * Extract method names from source
-   */
-  private extractMethodNames(source: string): string[] {
-    const methods: string[] = [];
-    const regex =
-      /(?:public|private|protected)\s+(?:static\s+)?(?:final\s+)?(?:[\w<>,\[\]]+)\s+(\w+)\s*\(/g;
-    for (const match of source.matchAll(regex)) {
-      methods.push(match[1]);
-    }
-    return [...new Set(methods)];
-  }
-
-  /**
-   * Extract field names from source
-   */
-  private extractFieldNames(source: string): string[] {
-    const fields: string[] = [];
-    const regex =
-      /(?:public|private|protected)\s+(?:static\s+)?(?:final\s+)?(?:[\w<>,\[\]]+)\s+(\w+)\s*[;=]/g;
-    for (const match of source.matchAll(regex)) {
-      fields.push(match[1]);
-    }
-    return [...new Set(fields)];
-  }
-
-  /**
-   * Find similar strings using Levenshtein distance
-   */
-  private findSimilar(target: string, candidates: string[], maxDistance = 3): string[] {
-    return candidates
-      .map((c) => ({
-        name: c,
-        distance: this.levenshteinDistance(target.toLowerCase(), c.toLowerCase()),
-      }))
-      .filter((c) => c.distance <= maxDistance)
-      .sort((a, b) => a.distance - b.distance)
-      .map((c) => c.name);
-  }
-
-  /**
-   * Check if two strings are similar
-   */
-  private isSimilar(a: string, b: string): boolean {
-    const distance = this.levenshteinDistance(a.toLowerCase(), b.toLowerCase());
-    return (
-      distance <= 3 ||
-      b.toLowerCase().includes(a.toLowerCase()) ||
-      a.toLowerCase().includes(b.toLowerCase())
-    );
-  }
-
-  /**
-   * Calculate Levenshtein distance
-   */
-  private levenshteinDistance(a: string, b: string): number {
-    const matrix: number[][] = [];
-
-    for (let i = 0; i <= b.length; i++) {
-      matrix[i] = [i];
-    }
-    for (let j = 0; j <= a.length; j++) {
-      matrix[0][j] = j;
-    }
-
-    for (let i = 1; i <= b.length; i++) {
-      for (let j = 1; j <= a.length; j++) {
-        if (b.charAt(i - 1) === a.charAt(j - 1)) {
-          matrix[i][j] = matrix[i - 1][j - 1];
-        } else {
-          matrix[i][j] = Math.min(
-            matrix[i - 1][j - 1] + 1,
-            matrix[i][j - 1] + 1,
-            matrix[i - 1][j] + 1,
-          );
-        }
-      }
-    }
-
-    return matrix[b.length][a.length];
   }
 
   /**

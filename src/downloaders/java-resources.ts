@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ToolNotBuiltError } from '../utils/errors.js';
 import { ensureDir } from '../utils/file-utils.js';
 import { logger } from '../utils/logger.js';
 import { paths } from '../utils/paths.js';
@@ -12,6 +13,7 @@ import { downloadFile } from './http-client.js';
  * - Vineflower: https://github.com/Vineflower/vineflower/releases
  * - tiny-remapper: https://maven.fabricmc.net/net/fabricmc/tiny-remapper/
  * - mapping-io-cli: Bundled with package (tools/mapping-io-cli/)
+ * - bytecode-dumper: Bundled with package (tools/bytecode-dumper/)
  */
 
 const VINEFLOWER_VERSION = '1.11.2';
@@ -120,28 +122,66 @@ export class JavaResourceDownloader {
   }
 
   /**
+   * Resolve the path to a source-bundled tool JAR (under
+   * `tools/<tool>/build/libs/<tool>-1.0.0.jar`), throwing with build instructions
+   * if it has not been built yet.
+   *
+   * Shared by {@link getMappingIOCliJar}, {@link getBytecodeDumperJar}, and
+   * {@link hasAllResources}. Unlike Vineflower/tiny-remapper, these JARs are
+   * shipped with the package (built from `tools/`), not downloaded.
+   *
+   * @throws ToolNotBuiltError if the bundled JAR is not found
+   */
+  private bundledJarPath(tool: string): string {
+    // Resolve relative to package root: dist/downloaders/java-resources.js
+    // -> tools/<tool>/build/libs/<tool>-1.0.0.jar
+    const jarPath = join(
+      __dirname,
+      '..',
+      '..',
+      'tools',
+      tool,
+      'build',
+      'libs',
+      `${tool}-1.0.0.jar`,
+    );
+
+    if (!existsSync(jarPath)) {
+      throw new ToolNotBuiltError(
+        tool,
+        `Bundled ${tool}.jar not found at ${jarPath}. Please build it with: cd tools/${tool} && ./gradlew shadowJar`,
+      );
+    }
+
+    logger.debug(`Using bundled ${tool} at ${jarPath}`);
+    return jarPath;
+  }
+
+  /**
    * Get mapping-io-cli JAR path (bundled with package)
    *
    * This JAR is used to convert ProGuard + Intermediary mappings to Tiny v2 format.
    * Unlike other tools, this is shipped with the package, not downloaded.
    *
-   * @throws Error if the bundled JAR is not found
+   * @throws ToolNotBuiltError if the bundled JAR is not found
    */
   getMappingIOCliJar(): string {
-    // Resolve path relative to package root
-    // From: dist/downloaders/java-resources.js
-    // To: tools/mapping-io-cli/build/libs/mapping-io-cli-1.0.0.jar
-    const jarPath = join(__dirname, '..', '..', 'tools', 'mapping-io-cli', 'build', 'libs', 'mapping-io-cli-1.0.0.jar');
+    return this.bundledJarPath('mapping-io-cli');
+  }
 
-    if (!existsSync(jarPath)) {
-      throw new Error(
-        `Bundled mapping-io-cli.jar not found at ${jarPath}. ` +
-          'Please build it with: cd tools/mapping-io-cli && ./gradlew shadowJar'
-      );
-    }
-
-    logger.debug(`Using bundled mapping-io-cli at ${jarPath}`);
-    return jarPath;
+  /**
+   * Get bytecode-dumper JAR path (bundled with package)
+   *
+   * This JAR runs the ASM-based bytecode metadata dumper (Stage 5 of the Java-parsing
+   * refactor). It provides authoritative access flags / descriptors / record components /
+   * inner-class relationships that decompiled `.java` cannot be trusted for. Like
+   * mapping-io-cli, this is shipped with the package (built from `tools/bytecode-dumper/`),
+   * not downloaded.
+   *
+   * @throws ToolNotBuiltError if the bundled JAR is not found
+   */
+  getBytecodeDumperJar(): string {
+    return this.bundledJarPath('bytecode-dumper');
   }
 
   /**
@@ -149,8 +189,9 @@ export class JavaResourceDownloader {
    */
   async downloadAll(): Promise<void> {
     await Promise.all([this.getVineflowerJar(), this.getTinyRemapperJar()]);
-    // Also verify bundled JAR exists
+    // Also verify bundled JARs exist
     this.getMappingIOCliJar();
+    this.getBytecodeDumperJar();
     logger.info('All Java resources ready');
   }
 
@@ -160,18 +201,20 @@ export class JavaResourceDownloader {
   hasAllResources(): boolean {
     const vineflower = join(this.resourcesDir, `vineflower-${VINEFLOWER_VERSION}.jar`);
     const tinyRemapper = join(this.resourcesDir, `tiny-remapper-${TINY_REMAPPER_VERSION}-fat.jar`);
-    const mappingIoCli = join(
-      __dirname,
-      '..',
-      '..',
-      'tools',
-      'mapping-io-cli',
-      'build',
-      'libs',
-      'mapping-io-cli-1.0.0.jar'
-    );
 
-    return existsSync(vineflower) && existsSync(tinyRemapper) && existsSync(mappingIoCli);
+    // bundledJarPath throws (ToolNotBuiltError) when a bundled JAR is missing;
+    // short-circuit on vineflower/tiny-remapper first, then report false if a
+    // bundled tool hasn't been built.
+    try {
+      return (
+        existsSync(vineflower) &&
+        existsSync(tinyRemapper) &&
+        Boolean(this.bundledJarPath('mapping-io-cli')) &&
+        Boolean(this.bundledJarPath('bytecode-dumper'))
+      );
+    } catch {
+      return false;
+    }
   }
 }
 
