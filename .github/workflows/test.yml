@@ -46,11 +46,61 @@ jobs:
         distribution: 'temurin'
         java-version: '21'
 
+    # The integration test suite needs the decompiled Minecraft source tree
+    # (TEST_VERSION/TEST_MAPPING = 1.21.11/yarn) on disk. On a cold runner the
+    # download (~400MB) + two-step remap + VineFlower decompile is slow and
+    # fragile (timeouts / OOM), and whichever test triggers it first can fail
+    # and cascade to the rest. cache-manager.hasDecompiledSource() checks the
+    # FILESYSTEM via existsSync (NOT the SQLite cache.db), so restoring the
+    # file tree alone is enough to make every decompile a no-op. We do NOT
+    # cache cache.db, registry/, resources/, or search-index/ to keep the cache
+    # lean and avoid stale DB/bookkeeping.
+    #
+    # Bump the v1 suffix when TEST_VERSION or TEST_MAPPING change in
+    # __tests__/test-constants.ts, or when the decompile pipeline changes.
+    - name: Restore decompiled Minecraft cache
+      id: mc-cache
+      uses: actions/cache/restore@v4
+      with:
+        path: |
+          ~/.config/minecraft-dev-mcp/jars
+          ~/.config/minecraft-dev-mcp/mappings
+          ~/.config/minecraft-dev-mcp/remapped
+          ~/.config/minecraft-dev-mcp/decompiled
+        key: decompiled-mc-v1-${{ runner.os }}-1.21.11-yarn
+
     - name: Install dependencies
       run: npm ci
 
     - name: Build
       run: npm run build
 
+    # Isolate the heavy decompile pipeline into its own step so it is not racing
+    # the vitest test timeout. Idempotent: a fast no-op when the cache above was
+    # restored (hasDecompiledSource -> true); runs the full pipeline only on a
+    # cache miss. Every subsequent test then finds the tree already present.
+    - name: Pre-decompile Minecraft source (idempotent; no-op on cache hit)
+      run: |
+        node --input-type=module -e "
+          import { getDecompileService } from './dist/services/decompile-service.js';
+          console.log('Ensuring decompiled source for 1.21.11/yarn...');
+          await getDecompileService().decompileVersion('1.21.11', 'yarn');
+          console.log('Decompiled source ready.');
+        "
+
     - name: Run tests
       run: npm test
+
+    # Save the tree for subsequent runs. if: always() ensures even a flaky first
+    # run still populates the cache; the cache-hit guard skips re-saving on a
+    # hit since the content is unchanged.
+    - name: Save decompiled Minecraft cache
+      if: always() && steps.mc-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: |
+          ~/.config/minecraft-dev-mcp/jars
+          ~/.config/minecraft-dev-mcp/mappings
+          ~/.config/minecraft-dev-mcp/remapped
+          ~/.config/minecraft-dev-mcp/decompiled
+        key: decompiled-mc-v1-${{ runner.os }}-1.21.11-yarn
