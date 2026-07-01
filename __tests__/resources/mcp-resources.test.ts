@@ -105,12 +105,13 @@ describe('Documentation and Index Resources', () => {
     const { resources } = await import('../../src/server/resources.js');
 
     expect(resources).toBeDefined();
-    expect(resources.length).toBe(4);
+    expect(resources.length).toBe(5);
 
     const uris = resources.map((r) => r.uri);
     expect(uris).toContain('minecraft://index/list');
     expect(uris).toContain('minecraft://docs/topic/mixin');
     expect(uris).toContain('minecraft://docs/topic/accesswidener');
+    expect(uris).toContain('minecraft://docs/topic/accesstransformer');
   });
 
   it('should read documentation resource', async () => {
@@ -151,6 +152,18 @@ describe('Documentation and Index Resources', () => {
 
     const data = JSON.parse(result.contents[0].text ?? '{}');
     expect(data.name).toBe('Access Widener');
+  });
+
+  it('should read access transformer topic resource', async () => {
+    const { handleReadResource } = await import('../../src/server/resources.js');
+
+    const result = await handleReadResource('minecraft://docs/topic/accesstransformer');
+
+    expect(result).toBeDefined();
+    expect(result.contents.length).toBe(1);
+
+    const data = JSON.parse(result.contents[0].text ?? '{}');
+    expect(data.name).toBe('Access Transformer');
   });
 
   it('should read indexed versions list resource', async () => {

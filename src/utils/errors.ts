@@ -196,6 +196,34 @@ export class AccessWidenerValidationError extends MinecraftDevError {
 }
 
 /**
+ * Access transformer parsing failed
+ */
+export class AccessTransformerParseError extends MinecraftDevError {
+  constructor(
+    public filePath: string,
+    public line?: number,
+    message?: string,
+  ) {
+    super(
+      message || `Failed to parse access transformer: ${filePath}${line ? ` at line ${line}` : ''}`,
+    );
+  }
+}
+
+/**
+ * Access transformer validation failed
+ */
+export class AccessTransformerValidationError extends MinecraftDevError {
+  constructor(
+    public filePath: string,
+    public errors: string[],
+    message?: string,
+  ) {
+    super(message || `Access transformer validation failed: ${errors.join(', ')}`);
+  }
+}
+
+/**
  * Search index error
  */
 export class SearchIndexError extends MinecraftDevError {

@@ -329,6 +329,7 @@ Deterministic central-directory scan: any `.class` entry → decompile via VineF
 8. **`compare_versions`** - Compare classes/registries between versions
 9. **`analyze_mixin`** - Analyze and validate Mixin code
 10. **`validate_access_widener`** - Validate access widener files
+10a. **`validate_access_transformer`** - Validate Forge/NeoForge access transformer files (parses `.cfg`, checks signatures, detects record canonical-constructor crashes, inner-class accessibility, and conflicting modifiers; mojmap-only)
 11. **`compare_versions_detailed`** - AST-level version comparison
 12. **`index_minecraft_version`** - Create full-text search index
 13. **`search_indexed`** - Fast FTS5 search on indexed versions

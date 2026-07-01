@@ -203,3 +203,84 @@ export function classNamesMatch(qualifiedClassName: string, astDeclaringClass: s
   if (left.length !== right.length) return false;
   return left.every((seg, i) => seg === right[i]);
 }
+
+/**
+ * Convert a JVM descriptor to a human-readable Java type string.
+ *
+ * - Field descriptors: `I` → `int`, `Ljava/lang/String;` → `java.lang.String`,
+ *   `[[I` → `int[][]`.
+ * - Method descriptors: `(II)V` → `void (int, int)`.
+ *
+ * Robust against malformed input: a missing closing `;` consumes the rest of
+ * the string instead of rewinding the cursor, and unrecognized characters
+ * advance the cursor so the caller's loop always makes forward progress
+ * (never infinite-loops). Originally in `access-widener-service.ts`; extracted
+ * so the Access Transformer validator reuses the exact same decoder + output
+ * strings (which are pinned by timeout regression tests).
+ */
+export function descriptorToReadable(descriptor: string): string {
+  const typeMap: Record<string, string> = {
+    Z: 'boolean',
+    B: 'byte',
+    C: 'char',
+    S: 'short',
+    I: 'int',
+    J: 'long',
+    F: 'float',
+    D: 'double',
+    V: 'void',
+  };
+
+  let i = 0;
+
+  const parseType = (): string => {
+    if (i >= descriptor.length) return '';
+
+    const c = descriptor[i];
+
+    if (typeMap[c]) {
+      i++;
+      return typeMap[c];
+    }
+
+    if (c === 'L') {
+      const end = descriptor.indexOf(';', i);
+      if (end < 0) {
+        // No closing ';' — consume the rest instead of rewinding to index 0.
+        const rest = descriptor.substring(i + 1).replace(/\//g, '.');
+        i = descriptor.length;
+        return rest;
+      }
+      const className = descriptor.substring(i + 1, end).replace(/\//g, '.');
+      i = end + 1;
+      return className;
+    }
+
+    if (c === '[') {
+      i++;
+      return `${parseType()}[]`;
+    }
+
+    // Unrecognized char — advance so the caller's loop always makes progress.
+    i++;
+    return '';
+  };
+
+  // Method descriptor: (params)returnType
+  if (descriptor.startsWith('(')) {
+    i = 1;
+    const params: string[] = [];
+
+    while (i < descriptor.length && descriptor[i] !== ')') {
+      params.push(parseType());
+    }
+
+    i++;
+    const returnType = parseType();
+
+    return `${returnType} (${params.join(', ')})`;
+  }
+
+  // Field descriptor
+  return parseType();
+}
