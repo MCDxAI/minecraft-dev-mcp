@@ -294,6 +294,94 @@ export interface AccessWidenerValidation {
 }
 
 /**
+ * Phase 2 Types - Access Transformer (Forge/NeoForge)
+ *
+ * Distinct grammar from the Fabric Access Widener above: raw JVM visibility
+ * keywords (`public`/`protected`/`default`/`private`) optionally suffixed with
+ * `-f`/`+f`, an *implicit* member kind inferred from token shape (no
+ * `class`/`method`/`field` keyword), and a method descriptor attached to the
+ * name with no spaces. See `docs/specs/access-transformer-support.md`.
+ */
+
+/** Raw JVM visibility keyword an AT entry widens (or narrows) to. */
+export type AccessTransformerAccess = 'public' | 'protected' | 'default' | 'private';
+
+/**
+ * Final-modifier suffix on the visibility token.
+ * - `add`: `+f` (set ACC_FINAL)
+ * - `remove`: `-f` (clear ACC_FINAL)
+ * - `none`: no suffix (final flag untouched)
+ */
+export type AccessTransformerFinal = 'add' | 'remove' | 'none';
+
+/**
+ * Inferred member kind. Derived from token shape, not an explicit keyword:
+ * 2 tokens → `class`; 3 tokens, 3rd has no `(` → `field`; 3rd has `(` → `method`.
+ */
+export type AccessTransformerMember = 'class' | 'field' | 'method';
+
+/** A parsed AT modifier token, e.g. `public-f`, `protected+f`, `default`. */
+export interface AccessTransformerModifier {
+  access: AccessTransformerAccess;
+  final: AccessTransformerFinal;
+}
+
+/** Single parsed Access Transformer directive line. */
+export interface AccessTransformerEntry {
+  /** Visibility + final intent parsed from the leading token. */
+  modifier: AccessTransformerModifier;
+  /** Inferred member kind (class/field/method). */
+  memberType: AccessTransformerMember;
+  /** Fully-qualified class name, slash separators normalized to dots. */
+  className: string;
+  /** Field/method name (absent for class entries). `<init>`/`<clinit>` for ctors. */
+  memberName?: string;
+  /** JVM method descriptor `(..)R` (methods only). AT fields carry no descriptor. */
+  memberDescriptor?: string;
+  /** True for `*` (all fields) / `*()` (all methods) wildcard directives. */
+  wildcard?: boolean;
+  /** 1-based source line. */
+  line: number;
+}
+
+/** A line that could not be parsed (recorded, not fatal to the whole file). */
+export interface AccessTransformerParseError {
+  /** 1-based source line. */
+  line: number;
+  /** Why the line was rejected. */
+  message: string;
+  /** The raw (comment-trimmed) line text, for context. */
+  raw: string;
+}
+
+/** Parsed Access Transformer file. AT files have no header (unlike AW). */
+export interface AccessTransformer {
+  /** Successfully parsed directives. */
+  entries: AccessTransformerEntry[];
+  /** Lines rejected by the parser (token count, bad modifier, etc.). */
+  parseErrors: AccessTransformerParseError[];
+  /** Source file path, when parsed from disk. */
+  sourcePath?: string;
+}
+
+/** Access Transformer validation result (mirrors the AW shape). */
+export interface AccessTransformerValidation {
+  /** True only when there are no semantic errors (parse errors are reported separately). */
+  isValid: boolean;
+  /** Semantic validation errors, each tied to a parsed entry. */
+  errors: Array<{
+    entry: AccessTransformerEntry;
+    message: string;
+    suggestion?: string;
+  }>;
+  /** Validation warnings. */
+  warnings: Array<{
+    entry: AccessTransformerEntry;
+    message: string;
+  }>;
+}
+
+/**
  * Phase 2 Types - AST Diffing
  */
 
@@ -465,7 +553,12 @@ export interface RankedSearchResult extends SearchIndexEntry {
  */
 
 /** Documentation source */
-export type DocSource = 'fabric_wiki' | 'minecraft_wiki' | 'javadoc' | 'parchment';
+export type DocSource =
+  | 'fabric_wiki'
+  | 'minecraft_wiki'
+  | 'javadoc'
+  | 'parchment'
+  | 'neoforge_docs';
 
 /** Documentation entry */
 export interface DocumentationEntry {

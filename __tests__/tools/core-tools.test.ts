@@ -79,10 +79,10 @@ describe('Tool Registration', () => {
     await verifyJavaVersion(17);
   }, 30000);
 
-  it('should have all 20 MCP tools defined', () => {
+  it('should have all 21 MCP tools defined', () => {
     expect(tools).toBeDefined();
     expect(Array.isArray(tools)).toBe(true);
-    expect(tools.length).toBe(20);
+    expect(tools.length).toBe(21);
 
     const toolNames = tools.map((t) => t.name);
 
@@ -106,6 +106,7 @@ describe('Tool Registration', () => {
     // Validation tools
     expect(toolNames).toContain('analyze_mixin');
     expect(toolNames).toContain('validate_access_widener');
+    expect(toolNames).toContain('validate_access_transformer');
 
     // Documentation tools
     expect(toolNames).toContain('get_documentation');

@@ -10,10 +10,10 @@
  * validated against the actual signatures, not just names. There is NO regex
  * Java-source inspection left; the only string-pattern operations remaining are
  * AW-file-format parsing (parseEntry), class-name/path conversion, and pure JVM
- * descriptor decode logic (`descriptorToReadable`).
+ * descriptor decode logic (shared via `descriptor-utils`).
  */
 
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getCacheManager } from '../cache/cache-manager.js';
 import type {
@@ -30,12 +30,14 @@ import {
   javaTypeToDescriptor,
   paramToDescriptor,
   parseParamDescriptors,
+  descriptorToReadable as sharedDescriptorToReadable,
 } from '../utils/descriptor-utils.js';
 import { AccessWidenerParseError } from '../utils/errors.js';
 import { extractJavaSymbols } from '../utils/java-symbols.js';
 import type { JavaSymbol } from '../utils/java-symbols.js';
 import { logger } from '../utils/logger.js';
 import { getDecompiledPath } from '../utils/paths.js';
+import { findSimilarClassFile, findSimilarName } from '../utils/suggestions.js';
 
 // ---------------------------------------------------------------------------
 // AW-local descriptor helpers (module-internal)
@@ -45,7 +47,9 @@ import { getDecompiledPath } from '../utils/paths.js';
 // are AW-validation-shaped (they take a `JavaSymbol`) and live here. The
 // generic primitives they build on — `javaTypeToDescriptor`, `paramToDescriptor`,
 // `parseParamDescriptors`, `descriptorsCompatible`, `classNamesMatch` — now
-// live in `../utils/descriptor-utils.js` (shared with the mixin validator).
+// live in `../utils/descriptor-utils.js` (shared with the mixin + AT validators).
+// `descriptorToReadable` (descriptor decode) and the edit-distance suggestion
+// helpers live in `descriptor-utils.js` / `suggestions.js` respectively.
 
 /** Build the JVM descriptor string for an AST method/constructor symbol. */
 function buildMethodDescriptor(method: JavaSymbol): string {
@@ -116,48 +120,6 @@ function uniqueFieldNames(classSymbols: JavaSymbol[]): string[] {
     if (s.entryType === 'field' && s.symbol) set.add(s.symbol);
   }
   return [...set];
-}
-
-// ---------------------------------------------------------------------------
-// Pure helpers: edit-distance suggestions (module-internal)
-// ---------------------------------------------------------------------------
-
-function levenshteinDistance(a: string, b: string): number {
-  const matrix: number[][] = [];
-
-  for (let i = 0; i <= b.length; i++) {
-    matrix[i] = [i];
-  }
-  for (let j = 0; j <= a.length; j++) {
-    matrix[0][j] = j;
-  }
-
-  for (let i = 1; i <= b.length; i++) {
-    for (let j = 1; j <= a.length; j++) {
-      if (b.charAt(i - 1) === a.charAt(j - 1)) {
-        matrix[i][j] = matrix[i - 1][j - 1];
-      } else {
-        matrix[i][j] = Math.min(
-          matrix[i - 1][j - 1] + 1,
-          matrix[i][j - 1] + 1,
-          matrix[i - 1][j] + 1,
-        );
-      }
-    }
-  }
-
-  return matrix[b.length][a.length];
-}
-
-function isSimilar(a: string, b: string): boolean {
-  return levenshteinDistance(a.toLowerCase(), b.toLowerCase()) <= 2;
-}
-
-function findSimilarName(target: string, candidates: string[]): string | null {
-  for (const candidate of candidates) {
-    if (isSimilar(target, candidate)) return candidate;
-  }
-  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -511,7 +473,7 @@ export class AccessWidenerService {
       errors.push(`Class not found: ${entry.className}`);
 
       // Try to find similar classes (filesystem-based suggestion).
-      const similar = this.findSimilarClass(outerClassName, decompiledPath);
+      const similar = findSimilarClassFile(outerClassName, decompiledPath);
       if (similar) {
         suggestion = `Did you mean: ${similar}?`;
       }
@@ -526,37 +488,6 @@ export class AccessWidenerService {
     }
 
     return validateEntryAgainstSymbols(entry, symbols);
-  }
-
-  /**
-   * Find a similar class name (filesystem-based suggestion).
-   */
-  private findSimilarClass(className: string, basePath: string): string | null {
-    const simpleName = className.split('.').pop() || className;
-    const packagePath = className
-      .substring(0, className.length - simpleName.length - 1)
-      .replace(/\./g, '/');
-    const packageDir = join(basePath, packagePath);
-
-    if (!existsSync(packageDir)) {
-      return null;
-    }
-
-    try {
-      const files = readdirSync(packageDir);
-      const javaFiles = files.filter((f) => f.endsWith('.java'));
-
-      for (const file of javaFiles) {
-        const name = file.replace('.java', '');
-        if (isSimilar(simpleName, name)) {
-          return className.replace(simpleName, name);
-        }
-      }
-    } catch {
-      return null;
-    }
-
-    return null;
   }
 
   /**
@@ -593,84 +524,16 @@ export class AccessWidenerService {
     return lines.join('\n');
   }
 
-  // TODO(consolidation): the primitive lookup below (`typeMap`) is the inverse
-  // of PRIMITIVE_DESCRIPTORS in descriptor-utils.ts. It is left as-is because
-  // Wave 1 hardened this decoder (infinite-loop fix) and pinned its exact output
-  // strings with timeout tests. Revisit when the ASM stage makes descriptor
-  // handling authoritative; a clean shared primitive would avoid changing the
-  // pinned output.
   /**
-   * Convert descriptor to human-readable format
+   * Convert descriptor to human-readable format.
+   *
+   * Thin delegate over the shared `descriptorToReadable` in
+   * `descriptor-utils.ts` — kept on the service to preserve the public API
+   * (the descriptor-decode regression tests exercise this method). The decode
+   * logic (incl. the malformed-input termination guards) lives in one place.
    */
   descriptorToReadable(descriptor: string): string {
-    const typeMap: Record<string, string> = {
-      Z: 'boolean',
-      B: 'byte',
-      C: 'char',
-      S: 'short',
-      I: 'int',
-      J: 'long',
-      F: 'float',
-      D: 'double',
-      V: 'void',
-    };
-
-    let i = 0;
-
-    const parseType = (): string => {
-      if (i >= descriptor.length) return '';
-
-      const c = descriptor[i];
-
-      if (typeMap[c]) {
-        i++;
-        return typeMap[c];
-      }
-
-      if (c === 'L') {
-        // Object type
-        const end = descriptor.indexOf(';', i);
-        if (end < 0) {
-          // No closing ';' — consume the rest of the string instead of rewinding
-          // to index 0 (which would infinite-loop the caller's `while`).
-          const rest = descriptor.substring(i + 1).replace(/\//g, '.');
-          i = descriptor.length;
-          return rest;
-        }
-        const className = descriptor.substring(i + 1, end).replace(/\//g, '.');
-        i = end + 1;
-        return className;
-      }
-
-      if (c === '[') {
-        // Array
-        i++;
-        return `${parseType()}[]`;
-      }
-
-      // Unrecognized char — advance the cursor so the caller's loop always
-      // makes forward progress (prevents infinite loops on malformed input).
-      i++;
-      return '';
-    };
-
-    // For method descriptors: (params)returnType
-    if (descriptor.startsWith('(')) {
-      i = 1; // Skip '('
-      const params: string[] = [];
-
-      while (i < descriptor.length && descriptor[i] !== ')') {
-        params.push(parseType());
-      }
-
-      i++; // Skip ')'
-      const returnType = parseType();
-
-      return `${returnType} (${params.join(', ')})`;
-    }
-
-    // For field descriptors
-    return parseType();
+    return sharedDescriptorToReadable(descriptor);
   }
 }
 

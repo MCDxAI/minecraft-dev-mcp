@@ -1,13 +1,13 @@
 import { existsSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { getCacheManager } from '../../src/cache/cache-manager.js';
-import { MojangDownloader } from '../../src/downloaders/mojang-downloader.js';
+import { getVersionManager } from '../../src/services/version-manager.js';
 import { TEST_VERSION } from '../test-constants.js';
 
 /**
  * JAR Download Tests
  *
- * Tests the downloader's ability to:
+ * Tests VersionManager's ability to (download + SHA verify + cache.db bookkeeping):
  * - Download Minecraft client JARs from Mojang
  * - Cache downloaded JARs
  * - Verify JAR integrity
@@ -15,11 +15,14 @@ import { TEST_VERSION } from '../test-constants.js';
 
 describe('JAR Download', () => {
   it(`should download Minecraft ${TEST_VERSION} client JAR`, async () => {
-    const downloader = new MojangDownloader();
+    const versionManager = getVersionManager();
     const cacheManager = getCacheManager();
 
-    // Download the JAR (uses cache if already downloaded)
-    const jarPath = await downloader.downloadClientJar(TEST_VERSION, (downloaded, total) => {
+    // Download the JAR via VersionManager: downloads + SHA-verifies the file AND
+    // records it in cache.db. Using the raw downloader here would write the file
+    // but leave cache.db empty, so hasVersionJar() (which checks cache.db) would
+    // fail whenever the CI pre-decompile step was a cache-hit no-op.
+    const jarPath = await versionManager.getVersionJar(TEST_VERSION, (downloaded, total) => {
       // Progress callback
       console.log(`Download progress: ${((downloaded / total) * 100).toFixed(1)}%`);
     });
