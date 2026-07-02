@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { z } from 'zod';
 import { getCacheManager } from '../cache/cache-manager.js';
+import { getAccessTransformerService } from '../services/access-transformer-service.js';
 import { getAccessWidenerService } from '../services/access-widener-service.js';
 import { getAstDiffService } from '../services/ast-diff-service.js';
 import { getDecompileService } from '../services/decompile-service.js';
@@ -14,7 +15,12 @@ import { getRegistryService } from '../services/registry-service.js';
 import { getRemapService } from '../services/remap-service.js';
 import { getSearchIndexService } from '../services/search-index-service.js';
 import { getVersionManager } from '../services/version-manager.js';
-import type { AccessWidener, MappingType, MixinClass } from '../types/minecraft.js';
+import type {
+  AccessTransformer,
+  AccessWidener,
+  MappingType,
+  MixinClass,
+} from '../types/minecraft.js';
 import { extractJavaSymbols } from '../utils/java-symbols.js';
 import { logger } from '../utils/logger.js';
 import { normalizePath } from '../utils/path-converter.js';
@@ -145,6 +151,14 @@ const ValidateAccessWidenerSchema = z.object({
     ),
   mcVersion: z.string().describe('Minecraft version to validate against'),
   mapping: z.enum(['yarn', 'mojmap']).optional().describe('Mapping type (default: yarn)'),
+});
+
+const ValidateAccessTransformerSchema = z.object({
+  content: z
+    .string()
+    .describe('Access transformer .cfg content or path to file (supports WSL and Windows paths)'),
+  mcVersion: z.string().describe('Minecraft version to validate against'),
+  mapping: z.enum(['yarn', 'mojmap']).optional().describe('Mapping type (default: mojmap)'),
 });
 
 const CompareVersionsDetailedSchema = z.object({
@@ -517,6 +531,30 @@ export const tools = [
           type: 'string',
           enum: ['yarn', 'mojmap'],
           description: 'Mapping type (default: yarn)',
+        },
+      },
+      required: ['content', 'mcVersion'],
+    },
+  },
+  {
+    name: 'validate_access_transformer',
+    description:
+      'Parse and validate Forge/NeoForge Access Transformer files against Minecraft source. Checks that targets exist and match signatures, detects record canonical-constructor crashes, inner-class accessibility, and conflicting modifiers. Supports both WSL (/mnt/c/...) and Windows (C:\\...) paths.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        content: {
+          type: 'string',
+          description: 'Access transformer .cfg content or path to file (WSL or Windows path)',
+        },
+        mcVersion: {
+          type: 'string',
+          description: 'Minecraft version to validate against',
+        },
+        mapping: {
+          type: 'string',
+          enum: ['yarn', 'mojmap'],
+          description: 'Mapping type (default: mojmap)',
         },
       },
       required: ['content', 'mcVersion'],
@@ -1669,6 +1707,66 @@ export async function handleValidateAccessWidener(args: unknown) {
   }
 }
 
+// Handler for validate_access_transformer
+export async function handleValidateAccessTransformer(args: unknown) {
+  const { content, mcVersion, mapping = 'mojmap' } = ValidateAccessTransformerSchema.parse(args);
+
+  logger.info(`Validating access transformer for MC ${mcVersion} (${mapping})`);
+
+  const atService = getAccessTransformerService();
+
+  try {
+    // Normalize path for cross-platform support (WSL/Windows)
+    const normalizedContent = normalizePath(content);
+
+    let accessTransformer: AccessTransformer;
+
+    // Check if content is a file path
+    if (existsSync(normalizedContent)) {
+      accessTransformer = atService.parseAccessTransformerFile(normalizedContent);
+    } else {
+      accessTransformer = atService.parseAccessTransformer(content);
+    }
+
+    const validation = await atService.validateAccessTransformer(
+      accessTransformer,
+      mcVersion,
+      mapping as MappingType,
+    );
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(
+            {
+              accessTransformer: {
+                entryCount: accessTransformer.entries.length,
+                parseErrorCount: accessTransformer.parseErrors.length,
+                parseErrors: accessTransformer.parseErrors,
+              },
+              validation,
+            },
+            null,
+            2,
+          ),
+        },
+      ],
+    };
+  } catch (error) {
+    logger.error('Failed to validate access transformer', error);
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+}
+
 // Handler for compare_versions_detailed
 export async function handleCompareVersionsDetailed(args: unknown) {
   const { fromVersion, toVersion, mapping, packages, maxClasses } =
@@ -2331,6 +2429,8 @@ export async function handleToolCall(name: string, args: unknown) {
       return handleAnalyzeMixin(args);
     case 'validate_access_widener':
       return handleValidateAccessWidener(args);
+    case 'validate_access_transformer':
+      return handleValidateAccessTransformer(args);
     case 'compare_versions_detailed':
       return handleCompareVersionsDetailed(args);
     case 'index_minecraft_version':

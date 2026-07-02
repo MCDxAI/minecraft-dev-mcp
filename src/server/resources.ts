@@ -95,6 +95,12 @@ export const resources = [
     description: 'Documentation and guide for Access Wideners in Fabric mods',
     mimeType: 'application/json',
   },
+  {
+    uri: 'minecraft://docs/topic/accesstransformer',
+    name: 'Access Transformer Documentation',
+    description: 'Documentation and guide for Access Transformers in Forge/NeoForge mods',
+    mimeType: 'application/json',
+  },
 ];
 
 /**
@@ -405,6 +411,19 @@ async function handleDocsTopicResource(uri: string, topic: string) {
 
   if (topic === 'accesswidener') {
     const data = docService.getAccessWidenerDocumentation();
+    return {
+      contents: [
+        {
+          uri,
+          mimeType: 'application/json',
+          text: JSON.stringify(data, null, 2),
+        },
+      ],
+    };
+  }
+
+  if (topic === 'accesstransformer') {
+    const data = docService.getAccessTransformerDocumentation();
     return {
       contents: [
         {

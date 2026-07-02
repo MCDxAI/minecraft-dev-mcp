@@ -120,6 +120,7 @@ const FABRIC_WIKI_PAGES: Record<string, string> = {
   recipe: 'https://fabricmc.net/wiki/tutorial:recipes',
   mixin: 'https://fabricmc.net/wiki/tutorial:mixin_introduction',
   accesswidener: 'https://fabricmc.net/wiki/tutorial:accesswideners',
+  accesstransformer: 'https://docs.neoforged.net/docs/advanced/accesstransformers/',
   registry: 'https://fabricmc.net/wiki/tutorial:registry',
   networking: 'https://fabricmc.net/wiki/tutorial:networking',
   commands: 'https://fabricmc.net/wiki/tutorial:commands',
@@ -505,6 +506,34 @@ accessible class net/minecraft/example/PrivateClass
 accessible method net/minecraft/example/Class methodName (Lsome/Descriptor;)V
 accessible field net/minecraft/example/Class fieldName Lsome/Type;
       `.trim(),
+    };
+  }
+
+  /**
+   * Get Access Transformer documentation (Forge/NeoForge)
+   */
+  getAccessTransformerDocumentation(): DocumentationEntry {
+    return {
+      name: 'Access Transformer',
+      source: 'neoforge_docs',
+      url: FABRIC_WIKI_PAGES.accesstransformer,
+      summary:
+        'Access Transformers widen/narrow the visibility of classes, methods, and fields in Forge/NeoForge',
+      description: `
+Access Transformers (AT) allow mods to change the visibility and final state of Minecraft members at build+load time.
+
+Modifier forms:
+- public/protected/default/private: set the raw JVM visibility
+- Suffix -f (e.g. public-f): remove ACC_FINAL
+- Suffix +f (e.g. public+f): add ACC_FINAL
+
+Member kind is inferred from the token shape (no class/method/field keyword): a 2-token line targets a class; a 3-token line whose last token has '(' targets a method (descriptor attached to the name with no spaces); otherwise it targets a field (bare name, no descriptor).
+
+Two common pitfalls:
+- Inner classes: a nested type is only reachable if its enclosing class is public/protected (or widened in this file), so widen the enclosing class too.
+- Records: widening a record to public/protected does NOT widen its canonical constructor, which crashes at runtime — add a matching <init> directive at equal-or-wider access.
+      `.trim(),
+      seeAlso: ['Access Wideners'],
     };
   }
 

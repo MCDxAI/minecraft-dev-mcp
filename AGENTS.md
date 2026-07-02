@@ -24,7 +24,7 @@ Reference for AI/agent operators working in this repo. Grounded in `CLAUDE.md` a
 
 ## Available MCP Tools (for LLM surfaces)
 - Phase 1 core: `get_minecraft_source`, `decompile_minecraft_version`, `list_minecraft_versions`, `get_registry_data`.
-- Phase 2 analysis: `remap_mod_jar`, `find_mapping`, `search_minecraft_code`, `compare_versions`, `analyze_mixin`, `validate_access_widener`, `compare_versions_detailed`, `index_minecraft_version`, `search_indexed`, `get_documentation`, `search_documentation`.
+- Phase 2 analysis: `remap_mod_jar`, `find_mapping`, `search_minecraft_code`, `compare_versions`, `analyze_mixin`, `validate_access_widener`, `validate_access_transformer`, `compare_versions_detailed`, `index_minecraft_version`, `search_indexed`, `get_documentation`, `search_documentation`.
 - Phase 3: `analyze_mod_jar` (metadata/mixins/bytecode scan). Missing: decompile remapped mod JARs.
 
 ## Critical Behaviors & Pitfalls
