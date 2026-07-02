@@ -271,6 +271,18 @@ export function validateEntryAgainstSymbols(
   // symbols are present in this same `symbols` array.
   const classSymbols = symbols.filter((s) => classNamesMatch(entry.className, s.declaringClass));
 
+  // The target class must actually be declared. Named nested classes (regular,
+  // record, enum) are emitted by the AST walk with dot-qualified names, which
+  // `classNamesMatch` reconciles with the JVM `$` form — so a non-existent inner
+  // class (e.g. `Outer$NonExistent`) resolves to no class symbol and is caught
+  // here rather than silently passing. `classSym` is then reused below for the
+  // record and final-modifier checks.
+  const classSym = classSymbols.find((s) => s.entryType === 'class');
+  if (!classSym) {
+    errors.push(`Class '${entry.className}' not found`);
+    return { errors, warnings, suggestion };
+  }
+
   // --- Inner-class enclosing-class accessibility (quirk 6.1) ---
   // Runs for ANY entry whose class is nested (`$` present): reaching a nested
   // type through an inaccessible enclosing type is a Java access error. Per the
@@ -309,9 +321,8 @@ export function validateEntryAgainstSymbols(
       allEntries &&
       (entry.modifier.access === 'public' || entry.modifier.access === 'protected')
     ) {
-      const recordSym = classSymbols.find((s) => s.entryType === 'class' && s.kind === 'record');
-      if (recordSym) {
-        const components = recordSym.recordComponents ?? [];
+      if (classSym.kind === 'record') {
+        const components = classSym.recordComponents ?? [];
         const canonicalDesc = `(${components.map(paramToDescriptor).join('')})V`;
         const classLevel = ACCESS_LEVEL[entry.modifier.access];
         const hasMatchingInit = allEntries.some(
@@ -387,9 +398,8 @@ export function validateEntryAgainstSymbols(
       // targeted method; subclass overrides are untouched, risking JVM
       // link/verify errors if an override narrows visibility. Warn when the
       // targeted overload is overridable.
-      const classSym = classSymbols.find((s) => s.entryType === 'class');
       const classFinal =
-        !!classSym && (classSym.isFinal === true || classSym.modifiers?.includes('final') === true);
+        classSym.isFinal === true || classSym.modifiers?.includes('final') === true;
       if (matched.some((m) => isOverridable(m, classFinal))) {
         warnings.push(
           `Method '${entry.memberName}' is overridable — subclass overrides are not transformed by this AT and may cause JVM link/verify errors`,
@@ -474,22 +484,38 @@ export function detectAccessTransformerConflicts(entries: AccessTransformerEntry
 
   for (const [key, group] of groups) {
     if (group.length < 2) continue;
-    const first = group[0];
-    if (!first) continue;
-    for (let i = 1; i < group.length; i++) {
+    // Compare each entry against ALL preceding entries in the group, not just
+    // the first. Comparing only against group[0] silently drops conflicts
+    // between later entries — e.g. [public, public+f, public-f] hides the
+    // +f/-f conflict because both are compatible variations of `public`.
+    for (let i = 0; i < group.length; i++) {
       const curr = group[i];
       if (!curr) continue;
-      if (sameModifier(first.modifier, curr.modifier)) {
+      let isDuplicate = false;
+      let conflictWith: AccessTransformerEntry | null = null;
+      for (let j = 0; j < i; j++) {
+        const prev = group[j];
+        if (!prev) continue;
+        if (sameModifier(prev.modifier, curr.modifier)) {
+          isDuplicate = true;
+          break;
+        }
+        if (incompatibleModifiers(prev.modifier, curr.modifier)) {
+          conflictWith = prev;
+          break;
+        }
+        // else: compatible variation (e.g. same access, +f vs none) — keep looking.
+      }
+      if (isDuplicate) {
         warnings.push({ entry: curr, message: `Duplicate access transformer entry for ${key}` });
-      } else if (incompatibleModifiers(first.modifier, curr.modifier)) {
+      } else if (conflictWith) {
         errors.push({
           entry: curr,
           message: `Conflicting access transformer for ${key}: '${modifierToString(
-            first.modifier,
+            conflictWith.modifier,
           )}' vs '${modifierToString(curr.modifier)}'`,
         });
       }
-      // else: compatible variation (e.g. same access, +f vs none) — no message.
     }
   }
 

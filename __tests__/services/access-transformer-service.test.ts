@@ -1,4 +1,4 @@
-import { rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -12,6 +12,7 @@ import {
 import type { AccessTransformer, AccessTransformerEntry } from '../../src/types/minecraft.js';
 import { AccessTransformerParseError } from '../../src/utils/errors.js';
 import { extractJavaSymbols } from '../../src/utils/java-symbols.js';
+import { findSimilarClassFile } from '../../src/utils/suggestions.js';
 import { TEST_VERSION } from '../test-constants.js';
 
 /**
@@ -555,6 +556,51 @@ class Outer {
     ]);
     expect(res.warnings.some((w) => w.includes('enclosing class'))).toBe(false);
   });
+
+  it('errors on a non-existent inner class but accepts a real one', () => {
+    // Named nested classes are emitted by the AST walk (dot-qualified, matched
+    // to the `$` form by classNamesMatch), so a bogus inner target is caught by
+    // the class-existence check while the real sibling validates cleanly.
+    const src = `
+package net.test;
+public class Outer {
+    public static class Inner {}
+}
+`;
+    const bogus = makeEntry({
+      memberType: 'class',
+      className: 'net.test.Outer$NonExistent',
+      line: 1,
+    });
+    const bogusRes = validateEntryAgainstSource(bogus, src);
+    expect(bogusRes.errors.some((e) => e.includes('not found'))).toBe(true);
+
+    const real = makeEntry({
+      memberType: 'class',
+      className: 'net.test.Outer$Inner',
+      line: 1,
+    });
+    expect(validateEntryAgainstSource(real, src).errors).toEqual([]);
+  });
+});
+
+describe('findSimilarClassFile (suggestion path)', () => {
+  it('preserves the package when a segment equals the simple name', () => {
+    // Package segment `Block` equals the simple name `Block`. A naive
+    // string-replace would rewrite the first `Block` (the package), yielding
+    // `com.Blocks.Block`; the substring-slice keeps the package intact.
+    const base = mkdtempSync(join(tmpdir(), 'at-suggest-'));
+    try {
+      const pkgDir = join(base, 'com', 'Block');
+      mkdirSync(pkgDir, { recursive: true });
+      writeFileSync(join(pkgDir, 'Blocks.java'), 'package com.Block; class Blocks {}', 'utf8');
+
+      const suggestion = findSimilarClassFile('com.Block.Block', base);
+      expect(suggestion).toBe('com.Block.Blocks');
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('Conflict detection', () => {
@@ -601,6 +647,21 @@ describe('Conflict detection', () => {
       method({ modifier: { access: 'public', final: 'remove' }, line: 2 }),
     ]);
     expect(errors).toHaveLength(1);
+    expect(errors[0]?.message).toContain("'public+f'");
+    expect(errors[0]?.message).toContain("'public-f'");
+  });
+
+  it('flags a conflict between later entries, not just against the first (pairwise)', () => {
+    // [public, public+f, public-f]: both +f and -f are compatible variations of
+    // the leading `public`, so comparing only against group[0] silences the real
+    // +f/-f conflict. Pairwise comparison catches it on the `public-f` entry.
+    const { errors } = detectAccessTransformerConflicts([
+      method({ modifier: { access: 'public', final: 'none' }, line: 1 }),
+      method({ modifier: { access: 'public', final: 'add' }, line: 2 }),
+      method({ modifier: { access: 'public', final: 'remove' }, line: 3 }),
+    ]);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.entry.line).toBe(3);
     expect(errors[0]?.message).toContain("'public+f'");
     expect(errors[0]?.message).toContain("'public-f'");
   });

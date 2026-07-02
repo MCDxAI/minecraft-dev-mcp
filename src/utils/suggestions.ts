@@ -75,7 +75,11 @@ export function findSimilarClassFile(className: string, basePath: string): strin
     for (const file of javaFiles) {
       const name = file.replace('.java', '');
       if (isSimilar(simpleName, name)) {
-        return className.replace(simpleName, name);
+        // Slice the package prefix and append the suggestion directly. Using
+        // className.replace(simpleName, name) would corrupt the result when a
+        // package segment equals the simple name (e.g. `com.Block.Block`).
+        const packagePrefix = className.substring(0, className.length - simpleName.length);
+        return `${packagePrefix}${name}`;
       }
     }
   } catch {
