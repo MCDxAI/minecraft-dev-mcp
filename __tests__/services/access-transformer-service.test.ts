@@ -402,6 +402,67 @@ public class Locked {
     expect(finalRes.errors).toEqual([]);
     expect(finalRes.warnings.some((w) => w.includes('overridable'))).toBe(false);
   });
+
+  it('suggests a close method name when the targeted method is missing', () => {
+    // Distinct from the "only called, not declared" case: here a real, similarly
+    // named method exists, so the miss produces a "Did you mean" suggestion drawn
+    // from the class's declared method names.
+    const src = `
+package net.test;
+public class Ticker {
+    public void onTick() {}
+}
+`;
+    const entry = makeEntry({
+      memberType: 'method',
+      className: 'net.test.Ticker',
+      memberName: 'onTikc',
+      memberDescriptor: '()V',
+    });
+    const res = validateEntryAgainstSource(entry, src);
+    expect(res.errors.some((e) => e.includes('not found'))).toBe(true);
+    expect(res.suggestion).toContain('onTick');
+  });
+
+  it('warns (does not error) on a method wildcard *() against an existing class', () => {
+    // The class must exist for the wildcard branch to run — the class-existence
+    // guard returns early otherwise. The wildcard itself is never resolved to
+    // members; it just emits the "targets all members" discouragement warning.
+    const src = `
+package net.test;
+public class Widget {
+    public void go() {}
+}
+`;
+    const entry = makeEntry({
+      memberType: 'method',
+      className: 'net.test.Widget',
+      memberName: '*',
+      memberDescriptor: '()',
+      wildcard: true,
+    });
+    const res = validateEntryAgainstSource(entry, src);
+    expect(res.errors).toEqual([]);
+    expect(res.warnings.some((w) => w.includes('targets all members'))).toBe(true);
+  });
+
+  it('warns (does not error) on a field wildcard * against an existing class', () => {
+    const src = `
+package net.test;
+public class Widget {
+    public int count;
+}
+`;
+    const entry = makeEntry({
+      memberType: 'field',
+      className: 'net.test.Widget',
+      memberName: '*',
+      wildcard: true,
+    });
+    const res = validateEntryAgainstSource(entry, src);
+    expect(res.errors).toEqual([]);
+    expect(res.warnings.some((w) => w.includes('targets all members'))).toBe(true);
+  });
 });
 
 describe('Access Transformer cross-entry quirks', () => {
