@@ -11,7 +11,9 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "tools/mapping-io-cli/build/libs/*.jar",
+    "tools/bytecode-dumper/build/libs/*.jar"
   ],
   "scripts": {
     "cli": "tsx src/cli.ts",
