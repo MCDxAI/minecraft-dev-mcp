@@ -43,6 +43,7 @@ Use the actual Minecraft version the user is working with. Modern releases use t
 ### Validation and documentation
 - `analyze_mixin` — validate Mixin targets and injections against Minecraft source.
 - `validate_access_widener` — validate access widener targets against Minecraft source.
+- `validate_access_transformer` — validate a Forge/NeoForge access transformer (`.cfg`) against Minecraft source (mojmap-only); flags bad targets/signatures, record canonical-constructor crashes, inner-class accessibility, and conflicting modifiers.
 - `get_documentation` — fetch documentation hints for a Minecraft class or concept.
 - `search_documentation` — search known Minecraft and Fabric docs.
 

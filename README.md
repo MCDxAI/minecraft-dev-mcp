@@ -143,11 +143,11 @@ Output is always JSON: `{ "success": true, "tool": "...", "result": ... }` on su
 | **Multiple mapping namespaces** | Yarn, Mojmap (official), Intermediary, and obfuscated — translate any symbol between them with `find_mapping` |
 | **Decompiled source access** | Retrieve Java source for any Minecraft class with optional line-range filtering |
 | **Mod JAR analysis** | Analyze Fabric, Quilt, Forge, and NeoForge mods — metadata, mixins, dependencies, entry points — and decompile them |
-| **Mixin & Access Widener validation** | Validate Mixin annotations and `.accesswidener` files against decompiled source with error reporting and fix suggestions |
+| **Mixin, Access Widener & Access Transformer validation** | Validate Mixin annotations, Fabric `.accesswidener` files, and Forge/NeoForge access transformer `.cfg` files against decompiled source with error reporting and fix suggestions |
 | **Version diff** | Class-level and AST-level diff between any two Minecraft versions — method signatures, field changes, breaking changes |
 | **Full-text search** | SQLite FTS5 indexes for fast BM25-ranked search across Minecraft and mod source |
 
-20 tools across 4 categories — see [docs/tools.md](docs/tools.md) for the full reference.
+21 tools across 4 categories — see [docs/tools.md](docs/tools.md) for the full reference.
 
 </div>
 

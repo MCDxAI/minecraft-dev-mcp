@@ -155,6 +155,14 @@ Parameters:
 - `mcVersion`
 - optional: `mapping`
 
+### `validate_access_transformer`
+Validate a Forge/NeoForge access transformer (`.cfg`) against Minecraft source. Checks that targets exist and match signatures, and detects record canonical-constructor crashes, inner-class accessibility issues, and conflicting modifiers. Forge/NeoForge dev environments are mojmap-only.
+
+Parameters:
+- `content`
+- `mcVersion`
+- optional: `mapping` (default `mojmap`)
+
 ### `get_documentation`
 Get docs and usage hints for a class or concept.
 

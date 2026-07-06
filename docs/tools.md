@@ -1,6 +1,6 @@
 # Tools Reference
 
-20 tools organized by category.
+21 tools organized by category.
 
 ## Source Code (6 tools)
 
@@ -25,7 +25,7 @@ Translate names between namespaces and explore game data.
 | **remap_mod_jar** | Remap a Fabric mod JAR from intermediary to human-readable Yarn or Mojmap names. Accepts WSL and Windows paths. Minecraft version is auto-detected from mod metadata if not provided. | `inputJar`, `outputJar`, `toMapping` • Optional: `mcVersion` |
 | **get_registry_data** | Extract registry data (blocks, items, entities, etc.) for a version by running Minecraft's built-in data generator. | `version` • Optional: `registry` (e.g., `block`, `item`, `entity`) |
 
-## Analysis & Validation (6 tools)
+## Analysis & Validation (7 tools)
 
 Compare versions, validate mod code, and browse documentation.
 
@@ -35,6 +35,7 @@ Compare versions, validate mod code, and browse documentation.
 | **compare_versions_detailed** | AST-level version comparison showing exact method signature changes, field type changes, and breaking API modifications. Can be scoped to specific packages. | `fromVersion`, `toVersion`, `mapping` • Optional: `packages`, `maxClasses` |
 | **analyze_mixin** | Parse and validate Mixin code against Minecraft source. Validates target classes, injection methods, and annotation syntax. Provides similarity suggestions on failures. | `source` (Java code or file path), `mcVersion` • Optional: `mapping` |
 | **validate_access_widener** | Validate a Fabric Access Widener file against Minecraft source. Checks all class, method, and field targets exist and flags invalid entries. | `content` (file content or path), `mcVersion` • Optional: `mapping` |
+| **validate_access_transformer** | Validate a Forge/NeoForge Access Transformer (`.cfg`) file against Minecraft source. Checks that targets exist and match signatures, detects record canonical-constructor crashes, inner-class accessibility issues, and conflicting modifiers. Forge/NeoForge dev environments are mojmap-only. | `content` (file content or path), `mcVersion` • Optional: `mapping` (default `mojmap`) |
 | **get_documentation** | Get documentation links and usage hints for a Minecraft or Fabric class. Links to Fabric Wiki and Minecraft Wiki. | `className` |
 | **search_documentation** | Search across all known Minecraft and Fabric documentation topics. | `query` |
 
