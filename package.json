@@ -60,11 +60,11 @@
   },
   "homepage": "https://github.com/MCDxAI/minecraft-dev-mcp#readme",
   "dependencies": {
+    "@keqingmoe/tree-sitter": "^0.26.2",
     "@modelcontextprotocol/sdk": "^1.24.0",
     "adm-zip": "^0.5.16",
     "better-sqlite3": "^11.7.0",
     "express": "^5.0.1",
-    "tree-sitter": "^0.25.0",
     "tree-sitter-java": "^0.23.5",
     "zod": "^3.24.1"
   },
@@ -82,7 +82,7 @@
   },
   "overrides": {
     "tree-sitter-java": {
-      "tree-sitter": "$tree-sitter"
+      "tree-sitter": "npm:@keqingmoe/tree-sitter@^0.26.2"
     }
   },
   "engines": {

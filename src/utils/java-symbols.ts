@@ -23,15 +23,22 @@
  *   named type, including nested) for AST-level diffing, mapping onto the
  *   shapes defined in `src/types/minecraft.ts`.
  *
- * tree-sitter v0.25.x interop note: `tree-sitter-java`'s default export is the
- * Language object. Its TypeScript `Language` type is structurally incompatible
- * with `Parser.Language` (its `language` field is `unknown` vs the
- * self-referential tree-sitter type), but the values are runtime-compatible.
- * We cast through `unknown` to satisfy `strict` mode without resorting to
- * `any`. The parser is stateless across parses (input passed to parse()), so
- * one shared instance is safe.
+ * tree-sitter binding: we use the community fork `@keqingmoe/tree-sitter`
+ * instead of upstream `tree-sitter` because upstream ships no prebuilt native
+ * binaries (forcing a node-gyp compile on every platform, and it lacks working
+ * arm64 support — see node-tree-sitter issues #261/#286). The fork ships
+ * prebuilds for darwin/linux/win32 on both x64 and arm64, so it installs and
+ * runs out of the box. Its API/ABI shape matches upstream node-tree-sitter, and
+ * it is tested against tree-sitter-java 0.23.5 (the version we depend on).
+ *
+ * Interop note: `tree-sitter-java`'s default export is the Language object. Its
+ * TypeScript `Language` type is structurally incompatible with `Parser.Language`
+ * (its `language` field is `unknown` vs the self-referential tree-sitter type),
+ * but the values are runtime-compatible. We cast through `unknown` to satisfy
+ * `strict` mode without resorting to `any`. The parser is stateless across
+ * parses (input passed to parse()), so one shared instance is safe.
  */
-import Parser from 'tree-sitter';
+import Parser from '@keqingmoe/tree-sitter';
 import Java from 'tree-sitter-java';
 import type {
   ClassSignature,
@@ -46,8 +53,8 @@ export type { JavaParameter } from '../types/minecraft.js';
 
 type Node = Parser.SyntaxNode;
 
-// tree-sitter-java's Language is structurally incompatible with tree-sitter
-// 0.25's Parser.Language (see file header), but runtime-compatible.
+// tree-sitter-java's Language is structurally incompatible with the fork's
+// Parser.Language (see file header), but runtime-compatible.
 type TreeSitterLanguage = Parser.Language;
 const javaLang = Java as unknown as TreeSitterLanguage;
 
@@ -672,7 +679,7 @@ function extractTypes(source: string): TypeInfo[] {
     const body = child.childForFieldName('body');
     if (body) visitBody(body, typeInfo);
   }
-  // tree-sitter v0.25.x native memory is GC-managed (the Node Tree binding has
+  // tree-sitter native memory is GC-managed (the Node Tree binding has
   // no manual delete() call); we rely on garbage collection here.
 
   return top;
