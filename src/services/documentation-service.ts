@@ -531,7 +531,7 @@ Member kind is inferred from the token shape (no class/method/field keyword): a 
 
 Two common pitfalls:
 - Inner classes: a nested type is only reachable if its enclosing class is public/protected (or widened in this file), so widen the enclosing class too.
-- Records: widening a record to public/protected does NOT widen its canonical constructor, which crashes at runtime — add a matching <init> directive at equal-or-wider access.
+- Records: widening a record to public/protected does NOT widen its canonical constructor. Reading the record's components or codec is fine, but INSTANTIATING it (via 'new' or codec/network deserialization from your code) needs a widened ctor too — add a matching <init> directive at equal-or-wider access.
       `.trim(),
       seeAlso: ['Access Wideners'],
     };
