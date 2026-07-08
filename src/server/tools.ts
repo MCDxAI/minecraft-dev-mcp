@@ -6,7 +6,10 @@ import {
   accessTransformerEntryToString,
   getAccessTransformerService,
 } from '../services/access-transformer-service.js';
-import { getAccessWidenerService } from '../services/access-widener-service.js';
+import {
+  accessWidenerEntryToString,
+  getAccessWidenerService,
+} from '../services/access-widener-service.js';
 import { getAstDiffService } from '../services/ast-diff-service.js';
 import { getDecompileService } from '../services/decompile-service.js';
 import { getDocumentationService } from '../services/documentation-service.js';
@@ -22,6 +25,7 @@ import type {
   AccessTransformer,
   AccessTransformerEntry,
   AccessWidener,
+  AccessWidenerEntry,
   MappingType,
   MixinClass,
 } from '../types/minecraft.js';
@@ -1678,18 +1682,41 @@ export async function handleValidateAccessWidener(args: unknown) {
       mapping as MappingType,
     );
 
+    // Compact, verdict-first output (mirrors validate_access_transformer): each
+    // finding is a one-line directive + message, empty sections omitted. The
+    // envelope's `success` means "the tool ran"; `valid` is the verdict.
+    const compact = (f: { entry: AccessWidenerEntry; message: string; suggestion?: string }) => ({
+      line: f.entry.line,
+      directive: accessWidenerEntryToString(f.entry),
+      message: f.message,
+      ...(f.suggestion ? { suggestion: f.suggestion } : {}),
+    });
+
+    const entryCount = accessWidener.entries.length;
+    const errors = validation.errors.map(compact);
+    const warnings = validation.warnings.map(compact);
+
+    const plural = (n: number, singular: string, pluralForm = `${singular}s`) =>
+      `${n} ${n === 1 ? singular : pluralForm}`;
+    const summary = [
+      plural(entryCount, 'entry', 'entries'),
+      plural(errors.length, 'error'),
+      plural(warnings.length, 'warning'),
+    ].join(' · ');
+
     return {
       content: [
         {
           type: 'text',
           text: JSON.stringify(
             {
-              accessWidener: {
-                namespace: accessWidener.namespace,
-                version: accessWidener.version,
-                entryCount: accessWidener.entries.length,
-              },
-              validation,
+              valid: validation.isValid,
+              summary,
+              version: mcVersion,
+              mapping,
+              namespace: accessWidener.namespace,
+              ...(errors.length ? { errors } : {}),
+              ...(warnings.length ? { warnings } : {}),
             },
             null,
             2,
