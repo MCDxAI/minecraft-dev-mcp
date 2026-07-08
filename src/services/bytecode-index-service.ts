@@ -79,13 +79,18 @@ export class BytecodeIndexService {
 
     const signature = jarSignature(jarPath);
     const cachePath = cachePathFor(jarPath);
-    const cache = this.loadCache(cachePath, signature);
+    let cache = this.loadCache(cachePath, signature);
 
     const wanted = [...new Set(internalNames)];
     const missing = wanted.filter((n) => !(n in cache.classes));
 
     if (missing.length > 0) {
       const dumped = await this.dumpClasses(jarPath, missing);
+      // Re-read the cache right before writing and merge into THAT: a concurrent
+      // call may have dumped other classes while we awaited, and blindly saving
+      // our older snapshot would drop them (lost update). Disk only grows for a
+      // fixed signature, so the reload is a superset of what we started with.
+      cache = this.loadCache(cachePath, signature);
       for (const name of missing) {
         // `null` = confirmed absent from the JAR, so we never re-dump it.
         cache.classes[name] = dumped.get(name) ?? null;
@@ -173,7 +178,10 @@ export class BytecodeIndexService {
       return result; // none of the requested classes exist in the JAR
     }
 
-    const tmpJar = join(tmpdir(), `mdm-at-bytecode-${process.pid}-${Date.now()}.jar`);
+    // Random suffix in addition to pid+time: two calls in the same millisecond
+    // must not collide on the temp path (one deleting the other's file mid-read).
+    const unique = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const tmpJar = join(tmpdir(), `mdm-at-bytecode-${unique}.jar`);
     subset.writeZip(tmpJar);
     try {
       const dump = await getBytecodeDumper().dump(tmpJar);
