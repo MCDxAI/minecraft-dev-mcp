@@ -32,7 +32,6 @@ const SKIP = !PATCHED_JAR_PATH || !existsSync(PATCHED_JAR_PATH);
 const describePatched = SKIP ? describe.skip : describe;
 
 if (SKIP) {
-  // biome-ignore lint/suspicious/noConsole: visible signal in CI logs about why we're skipping
   console.warn(
     `[patched-jar.test] Skipping: PATCHED_JAR_PATH is unset or does not exist (${PATCHED_JAR_PATH || '<empty>'})`,
   );

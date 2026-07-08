@@ -1,10 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { getVersionManager } from '../../../src/services/version-manager.js';
 import {
   type McpTestSession,
   createMcpSession,
   extractFirstText,
 } from '../../helpers/mcp-stdio.js';
-import { getVersionManager } from '../../../src/services/version-manager.js';
 import { parseMatrixVersionsFromEnv } from './test-constants.js';
 
 const matrixVersions = parseMatrixVersionsFromEnv();
