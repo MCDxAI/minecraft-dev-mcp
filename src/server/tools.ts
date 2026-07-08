@@ -2,7 +2,10 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { z } from 'zod';
 import { getCacheManager } from '../cache/cache-manager.js';
-import { getAccessTransformerService } from '../services/access-transformer-service.js';
+import {
+  accessTransformerEntryToString,
+  getAccessTransformerService,
+} from '../services/access-transformer-service.js';
 import { getAccessWidenerService } from '../services/access-widener-service.js';
 import { getAstDiffService } from '../services/ast-diff-service.js';
 import { getDecompileService } from '../services/decompile-service.js';
@@ -17,6 +20,7 @@ import { getSearchIndexService } from '../services/search-index-service.js';
 import { getVersionManager } from '../services/version-manager.js';
 import type {
   AccessTransformer,
+  AccessTransformerEntry,
   AccessWidener,
   MappingType,
   MixinClass,
@@ -1734,18 +1738,48 @@ export async function handleValidateAccessTransformer(args: unknown) {
       mapping as MappingType,
     );
 
+    // Compact output: each finding is a one-line directive + message (not the
+    // full nested entry object), and empty sections are omitted. The verdict
+    // (`valid` + `summary`) is up front so it can't be missed — `success` on the
+    // envelope only means the tool ran, `valid` is the validation result.
+    const compact = (f: {
+      entry: AccessTransformerEntry;
+      message: string;
+      suggestion?: string;
+    }) => ({
+      line: f.entry.line,
+      directive: accessTransformerEntryToString(f.entry),
+      message: f.message,
+      ...(f.suggestion ? { suggestion: f.suggestion } : {}),
+    });
+
+    const entryCount = accessTransformer.entries.length;
+    const errors = validation.errors.map(compact);
+    const warnings = validation.warnings.map(compact);
+    const parseErrors = accessTransformer.parseErrors;
+
+    const plural = (n: number, singular: string, pluralForm = `${singular}s`) =>
+      `${n} ${n === 1 ? singular : pluralForm}`;
+    const summaryParts = [
+      plural(entryCount, 'entry', 'entries'),
+      plural(errors.length, 'error'),
+      plural(warnings.length, 'warning'),
+    ];
+    if (parseErrors.length) summaryParts.push(plural(parseErrors.length, 'parse error'));
+
     return {
       content: [
         {
           type: 'text',
           text: JSON.stringify(
             {
-              accessTransformer: {
-                entryCount: accessTransformer.entries.length,
-                parseErrorCount: accessTransformer.parseErrors.length,
-                parseErrors: accessTransformer.parseErrors,
-              },
-              validation,
+              valid: validation.isValid,
+              summary: summaryParts.join(' · '),
+              version: mcVersion,
+              mapping,
+              ...(errors.length ? { errors } : {}),
+              ...(warnings.length ? { warnings } : {}),
+              ...(parseErrors.length ? { parseErrors } : {}),
             },
             null,
             2,

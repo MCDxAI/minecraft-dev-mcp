@@ -1057,7 +1057,7 @@ describe('Conflict detection', () => {
 });
 
 describe('validate_access_transformer tool', () => {
-  it('returns a well-formed parse + validation envelope', async () => {
+  it('returns a compact, verdict-first envelope', async () => {
     const result = await handleValidateAccessTransformer({
       // Second line is a 3-token field directive (`exampleField`) so the file
       // parses to exactly 2 entries with no parse errors.
@@ -1066,11 +1066,18 @@ describe('validate_access_transformer tool', () => {
     });
     expect(result.content).toHaveLength(1);
     const data = JSON.parse(result.content[0]?.text ?? '');
-    expect(data.accessTransformer.entryCount).toBe(2);
-    expect(data.accessTransformer.parseErrorCount).toBe(0);
-    expect(typeof data.validation.isValid).toBe('boolean');
-    expect(Array.isArray(data.validation.errors)).toBe(true);
-    expect(Array.isArray(data.validation.warnings)).toBe(true);
+    // Verdict + one-line summary up front (the tool-ran flag lives on the outer
+    // CLI/MCP envelope, not here).
+    expect(typeof data.valid).toBe('boolean');
+    expect(data.summary).toContain('2 entries');
+    expect(data.version).toBe(TEST_VERSION);
+    // No parse errors -> the parseErrors section is omitted entirely (compact).
+    expect(data.parseErrors).toBeUndefined();
+    // Findings, when present, are one-line directive strings (no nested entry).
+    for (const f of data.errors ?? []) {
+      expect(typeof f.directive).toBe('string');
+      expect(typeof f.line).toBe('number');
+    }
   }, 30000);
 
   it('collects bad lines instead of throwing on garbage content', async () => {
@@ -1080,7 +1087,9 @@ describe('validate_access_transformer tool', () => {
     });
     expect(result.content).toHaveLength(1);
     const data = JSON.parse(result.content[0]?.text ?? '');
-    expect(data.accessTransformer.entryCount).toBe(0);
-    expect(data.accessTransformer.parseErrorCount).toBeGreaterThan(0);
+    expect(data.summary).toContain('0 entries');
+    expect(Array.isArray(data.parseErrors)).toBe(true);
+    expect(data.parseErrors.length).toBeGreaterThan(0);
+    expect(data.summary).toMatch(/parse error/);
   }, 30000);
 });

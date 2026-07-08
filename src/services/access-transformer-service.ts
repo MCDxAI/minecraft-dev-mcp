@@ -110,6 +110,24 @@ function sameModifier(a: AccessTransformerModifier, b: AccessTransformerModifier
 }
 
 /**
+ * Render a parsed entry back to its one-line AT directive text (the same shape
+ * the user wrote it as, e.g. `public net.mc.Foo value()Ljava/lang/String;`).
+ * Used to keep tool output compact — a finding shows this string instead of the
+ * full nested entry object.
+ */
+export function accessTransformerEntryToString(entry: AccessTransformerEntry): string {
+  const mod = modifierToString(entry.modifier);
+  if (entry.memberType === 'class' || !entry.memberName) {
+    return `${mod} ${entry.className}`;
+  }
+  const member =
+    entry.memberType === 'method'
+      ? `${entry.memberName}${entry.memberDescriptor ?? ''}`
+      : entry.memberName;
+  return `${mod} ${entry.className} ${member}`;
+}
+
+/**
  * Two modifiers are "incompatible" (Forge fails the build —
  * "Invalid AT final conflicts") when the access levels differ OR one wants
  * `+f` while the other wants `-f`. `+f` vs none is a compatible variation.
