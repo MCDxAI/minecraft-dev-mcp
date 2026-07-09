@@ -2,8 +2,14 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { z } from 'zod';
 import { getCacheManager } from '../cache/cache-manager.js';
-import { getAccessTransformerService } from '../services/access-transformer-service.js';
-import { getAccessWidenerService } from '../services/access-widener-service.js';
+import {
+  accessTransformerEntryToString,
+  getAccessTransformerService,
+} from '../services/access-transformer-service.js';
+import {
+  accessWidenerEntryToString,
+  getAccessWidenerService,
+} from '../services/access-widener-service.js';
 import { getAstDiffService } from '../services/ast-diff-service.js';
 import { getDecompileService } from '../services/decompile-service.js';
 import { getDocumentationService } from '../services/documentation-service.js';
@@ -17,7 +23,9 @@ import { getSearchIndexService } from '../services/search-index-service.js';
 import { getVersionManager } from '../services/version-manager.js';
 import type {
   AccessTransformer,
+  AccessTransformerEntry,
   AccessWidener,
+  AccessWidenerEntry,
   MappingType,
   MixinClass,
 } from '../types/minecraft.js';
@@ -1674,18 +1682,41 @@ export async function handleValidateAccessWidener(args: unknown) {
       mapping as MappingType,
     );
 
+    // Compact, verdict-first output (mirrors validate_access_transformer): each
+    // finding is a one-line directive + message, empty sections omitted. The
+    // envelope's `success` means "the tool ran"; `valid` is the verdict.
+    const compact = (f: { entry: AccessWidenerEntry; message: string; suggestion?: string }) => ({
+      line: f.entry.line,
+      directive: accessWidenerEntryToString(f.entry),
+      message: f.message,
+      ...(f.suggestion ? { suggestion: f.suggestion } : {}),
+    });
+
+    const entryCount = accessWidener.entries.length;
+    const errors = validation.errors.map(compact);
+    const warnings = validation.warnings.map(compact);
+
+    const plural = (n: number, singular: string, pluralForm = `${singular}s`) =>
+      `${n} ${n === 1 ? singular : pluralForm}`;
+    const summary = [
+      plural(entryCount, 'entry', 'entries'),
+      plural(errors.length, 'error'),
+      plural(warnings.length, 'warning'),
+    ].join(' · ');
+
     return {
       content: [
         {
           type: 'text',
           text: JSON.stringify(
             {
-              accessWidener: {
-                namespace: accessWidener.namespace,
-                version: accessWidener.version,
-                entryCount: accessWidener.entries.length,
-              },
-              validation,
+              valid: validation.isValid,
+              summary,
+              version: mcVersion,
+              mapping,
+              namespace: accessWidener.namespace,
+              ...(errors.length ? { errors } : {}),
+              ...(warnings.length ? { warnings } : {}),
             },
             null,
             2,
@@ -1734,18 +1765,48 @@ export async function handleValidateAccessTransformer(args: unknown) {
       mapping as MappingType,
     );
 
+    // Compact output: each finding is a one-line directive + message (not the
+    // full nested entry object), and empty sections are omitted. The verdict
+    // (`valid` + `summary`) is up front so it can't be missed — `success` on the
+    // envelope only means the tool ran, `valid` is the validation result.
+    const compact = (f: {
+      entry: AccessTransformerEntry;
+      message: string;
+      suggestion?: string;
+    }) => ({
+      line: f.entry.line,
+      directive: accessTransformerEntryToString(f.entry),
+      message: f.message,
+      ...(f.suggestion ? { suggestion: f.suggestion } : {}),
+    });
+
+    const entryCount = accessTransformer.entries.length;
+    const errors = validation.errors.map(compact);
+    const warnings = validation.warnings.map(compact);
+    const parseErrors = accessTransformer.parseErrors;
+
+    const plural = (n: number, singular: string, pluralForm = `${singular}s`) =>
+      `${n} ${n === 1 ? singular : pluralForm}`;
+    const summaryParts = [
+      plural(entryCount, 'entry', 'entries'),
+      plural(errors.length, 'error'),
+      plural(warnings.length, 'warning'),
+    ];
+    if (parseErrors.length) summaryParts.push(plural(parseErrors.length, 'parse error'));
+
     return {
       content: [
         {
           type: 'text',
           text: JSON.stringify(
             {
-              accessTransformer: {
-                entryCount: accessTransformer.entries.length,
-                parseErrorCount: accessTransformer.parseErrors.length,
-                parseErrors: accessTransformer.parseErrors,
-              },
-              validation,
+              valid: validation.isValid,
+              summary: summaryParts.join(' · '),
+              version: mcVersion,
+              mapping,
+              ...(errors.length ? { errors } : {}),
+              ...(warnings.length ? { warnings } : {}),
+              ...(parseErrors.length ? { parseErrors } : {}),
             },
             null,
             2,

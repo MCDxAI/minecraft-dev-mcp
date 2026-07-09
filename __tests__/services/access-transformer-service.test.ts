@@ -1,25 +1,52 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  existsSync as nodeExistsSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { beforeAll, describe, expect, it } from 'vitest';
+import type {
+  BytecodeClass,
+  BytecodeField,
+  BytecodeInnerClass,
+  BytecodeMethod,
+} from '../../src/java/bytecode-dumper.js';
+import { getBytecodeDumper } from '../../src/java/bytecode-dumper.js';
 import { handleValidateAccessTransformer } from '../../src/server/tools.js';
 import {
+  type ClassBytecodeMap,
   detectAccessTransformerConflicts,
   getAccessTransformerService,
-  validateEntryAgainstSource,
-  validateEntryAgainstSymbols,
+  validateEntryAgainstBytecode,
 } from '../../src/services/access-transformer-service.js';
 import type { AccessTransformer, AccessTransformerEntry } from '../../src/types/minecraft.js';
 import { AccessTransformerParseError } from '../../src/utils/errors.js';
-import { extractJavaSymbols } from '../../src/utils/java-symbols.js';
 import { findSimilarClassFile } from '../../src/utils/suggestions.js';
 import { TEST_VERSION } from '../test-constants.js';
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const FIXTURE_JAR = join(__dirname, '..', 'fixtures', 'summoningrituals-mc-stubs.jar');
+const FIXTURE_AT = join(__dirname, '..', 'fixtures', 'summoningrituals.accesstransformer.cfg');
+const DUMPER_JAR = join(
+  __dirname,
+  '..',
+  '..',
+  'tools',
+  'bytecode-dumper',
+  'build',
+  'libs',
+  'bytecode-dumper-1.0.0.jar',
+);
+
 /**
  * Build an AccessTransformerEntry with sensible defaults for the regression
- * tests below. The validation exercises go through the `validateEntryAgainstSource`
- * / `validateEntryAgainstSymbols` test seams (synthetic Java source, no decompiled
- * Minecraft tree required).
+ * tests below. Validation exercises go through the `validateEntryAgainstBytecode`
+ * test seam, driven by hand-built {@link BytecodeClass} fixtures — bytecode is
+ * the same ground truth the production path reads from the remapped JAR.
  */
 function makeEntry(partial: Partial<AccessTransformerEntry>): AccessTransformerEntry {
   return {
@@ -29,6 +56,50 @@ function makeEntry(partial: Partial<AccessTransformerEntry>): AccessTransformerE
     line: 1,
     ...partial,
   };
+}
+
+// --- Bytecode fixture builders (mirror the ASM dumper's JSON shape) ---------
+
+function bcMethod(name: string, desc: string, flags: string[] = ['public']): BytecodeMethod {
+  return { name, desc, access: 0, flags, signature: null, exceptions: [] };
+}
+
+function bcField(name: string, desc = 'I', flags: string[] = ['private']): BytecodeField {
+  return { name, desc, access: 0, flags, signature: null, value: null };
+}
+
+function bcInner(name: string, flags: string[]): BytecodeInnerClass {
+  return { name, outerName: null, innerName: null, access: 0, flags };
+}
+
+function bcClass(partial: Partial<BytecodeClass> & { name: string }): BytecodeClass {
+  return {
+    access: 0,
+    flags: ['public'],
+    superName: 'java/lang/Object',
+    interfaces: [],
+    signature: null,
+    isInterface: false,
+    isEnum: false,
+    isRecord: false,
+    isAnnotation: false,
+    isAbstract: false,
+    isFinal: false,
+    isSealed: false,
+    nestHost: null,
+    nestMembers: null,
+    permittedSubclasses: null,
+    recordComponents: null,
+    canonicalConstructor: null,
+    innerClasses: [],
+    fields: [],
+    methods: [],
+    ...partial,
+  };
+}
+
+function mapOf(...classes: BytecodeClass[]): ClassBytecodeMap {
+  return new Map(classes.map((c) => [c.name, c]));
 }
 
 describe('Access Transformer Service', () => {
@@ -236,49 +307,35 @@ describe('Access Transformer Service', () => {
   });
 });
 
-describe('Access Transformer Validation (tree-sitter + descriptor matching)', () => {
-  it('does NOT match a method that is only called (not declared)', () => {
-    // `helper` is invoked inside doWork() but never declared. A name-only check
-    // against call sites would false-positive; the AST walk only sees declared
-    // members, so `helper` is correctly reported missing with no spurious suggestion.
-    const src = `
-package net.test;
-public class Caller {
-    public void doWork() {
-        helper();
-    }
-}
-`;
+describe('Access Transformer Validation (bytecode + descriptor matching)', () => {
+  it('reports a method that is not declared in the class', () => {
+    const cls = bcClass({
+      name: 'net/test/Caller',
+      methods: [bcMethod('doWork', '()V')],
+    });
     const entry = makeEntry({
       memberType: 'method',
       className: 'net.test.Caller',
       memberName: 'helper',
       memberDescriptor: '()V',
     });
-    const res = validateEntryAgainstSource(entry, src);
+    const res = validateEntryAgainstBytecode(entry, mapOf(cls));
     expect(res.errors.some((e) => e.includes('not found'))).toBe(true);
     expect(res.suggestion).toBeUndefined();
   });
 
   it('validates <init> constructor descriptors (match vs arity mismatch)', () => {
-    const src = `
-package net.test;
-public class Thing {
-    private int x;
-    private int y;
-    public Thing(int a, int b) {
-        this.x = a;
-        this.y = b;
-    }
-}
-`;
+    const cls = bcClass({
+      name: 'net/test/Thing',
+      methods: [bcMethod('<init>', '(II)V')],
+    });
     const matching = makeEntry({
       memberType: 'method',
       className: 'net.test.Thing',
       memberName: '<init>',
       memberDescriptor: '(II)V',
     });
-    expect(validateEntryAgainstSource(matching, src).errors).toEqual([]);
+    expect(validateEntryAgainstBytecode(matching, mapOf(cls)).errors).toEqual([]);
 
     const wrongArity = makeEntry({
       memberType: 'method',
@@ -287,27 +344,24 @@ public class Thing {
       memberDescriptor: '(I)V',
     });
     expect(
-      validateEntryAgainstSource(wrongArity, src).errors.some((e) =>
+      validateEntryAgainstBytecode(wrongArity, mapOf(cls)).errors.some((e) =>
         e.includes('no overload matches'),
       ),
     ).toBe(true);
   });
 
   it('reports overload mismatch with the found overloads and matches a correct overload', () => {
-    const src = `
-package net.test;
-public class Over {
-    public void foo(int x) {}
-    public void foo(String s) {}
-}
-`;
+    const cls = bcClass({
+      name: 'net/test/Over',
+      methods: [bcMethod('foo', '(I)V'), bcMethod('foo', '(Ljava/lang/String;)V')],
+    });
     const mismatch = makeEntry({
       memberType: 'method',
       className: 'net.test.Over',
       memberName: 'foo',
       memberDescriptor: '(II)V',
     });
-    const res = validateEntryAgainstSource(mismatch, src);
+    const res = validateEntryAgainstBytecode(mismatch, mapOf(cls));
     const err = res.errors.find((e) => e.includes('no overload matches'));
     expect(err).toBeDefined();
     // The actual overloads are reported (raw JVM descriptors) so the user can
@@ -321,23 +375,21 @@ public class Over {
       memberName: 'foo',
       memberDescriptor: '(Ljava/lang/String;)V',
     });
-    expect(validateEntryAgainstSource(ok, src).errors).toEqual([]);
+    expect(validateEntryAgainstBytecode(ok, mapOf(cls)).errors).toEqual([]);
   });
 
   it('checks field existence by name only and suggests a close name when missing', () => {
-    const src = `
-package net.test;
-public class Box {
-    public int counter;
-}
-`;
+    const cls = bcClass({
+      name: 'net/test/Box',
+      fields: [bcField('counter')],
+    });
     // AT fields carry NO descriptor — name existence is the only check.
     const missing = makeEntry({
       memberType: 'field',
       className: 'net.test.Box',
       memberName: 'countre',
     });
-    const res = validateEntryAgainstSource(missing, src);
+    const res = validateEntryAgainstBytecode(missing, mapOf(cls));
     expect(res.errors.some((e) => e.includes('not found'))).toBe(true);
     expect(res.suggestion).toContain('counter');
 
@@ -346,94 +398,108 @@ public class Box {
       className: 'net.test.Box',
       memberName: 'counter',
     });
-    expect(validateEntryAgainstSource(ok, src).errors).toEqual([]);
+    expect(validateEntryAgainstBytecode(ok, mapOf(cls)).errors).toEqual([]);
   });
 
-  it('warns (does not error) on <clinit> static initializers', () => {
-    const src = `
-package net.test;
-public class WithStatic {
-    static {
-        System.out.println("init");
-    }
-}
-`;
-    const entry = makeEntry({
-      memberType: 'method',
-      className: 'net.test.WithStatic',
-      memberName: '<clinit>',
-      memberDescriptor: '()V',
-    });
-    const res = validateEntryAgainstSource(entry, src);
-    expect(res.errors).toEqual([]);
-    expect(res.warnings.some((w) => w.includes('<clinit>'))).toBe(true);
+  it('errors on a class that is absent from the JAR', () => {
+    const res = validateEntryAgainstBytecode(
+      makeEntry({ memberType: 'class', className: 'net.test.Ghost' }),
+      mapOf(bcClass({ name: 'net/test/Real' })),
+    );
+    expect(res.errors.some((e) => e.includes("Class 'net.test.Ghost' not found"))).toBe(true);
+  });
+
+  it('suggests a similar class name from the JAR-wide pool (same package)', () => {
+    // The loaded classMap only holds the (missing) target; the suggestion must
+    // come from the wider JAR pool, not just the classes this file referenced.
+    const res = validateEntryAgainstBytecode(
+      makeEntry({ memberType: 'class', className: 'net.test.Blok' }),
+      mapOf(bcClass({ name: 'net/test/Unrelated' })), // classMap has no good candidate
+      undefined,
+      ['net/test/Block', 'net/test/Blocks', 'net/other/Blok'],
+    );
+    expect(res.suggestion).toContain('Block');
+  });
+
+  it('does not suggest a similar class from a different package', () => {
+    // `Bloc` is edit-distance 1 from `Block`, but only in a different package —
+    // package-scoped suggestions must not cross package boundaries.
+    const res = validateEntryAgainstBytecode(
+      makeEntry({ memberType: 'class', className: 'net.test.Bloc' }),
+      mapOf(bcClass({ name: 'net/test/Unrelated' })),
+      undefined,
+      ['net/other/Block', 'net/deep/nested/Block'],
+    );
+    expect(res.suggestion).toBeUndefined();
   });
 
   it('warns on override-narrowing for an overridable method but not a final one', () => {
-    const overridableSrc = `
-package net.test;
-public class Base {
-    public void tick() {}
-}
-`;
+    const base = bcClass({
+      name: 'net/test/Base',
+      methods: [bcMethod('tick', '()V', ['public'])],
+    });
     const overridable = makeEntry({
       memberType: 'method',
       className: 'net.test.Base',
       memberName: 'tick',
       memberDescriptor: '()V',
     });
-    const overridableRes = validateEntryAgainstSource(overridable, overridableSrc);
+    const overridableRes = validateEntryAgainstBytecode(overridable, mapOf(base));
     expect(overridableRes.errors).toEqual([]);
     expect(overridableRes.warnings.some((w) => w.includes('overridable'))).toBe(true);
 
-    const finalSrc = `
-package net.test;
-public class Locked {
-    public final void tick() {}
-}
-`;
+    // Final method -> not overridable.
+    const lockedFinal = bcClass({
+      name: 'net/test/LockedMethod',
+      methods: [bcMethod('tick', '()V', ['public', 'final'])],
+    });
     const finalEntry = makeEntry({
       memberType: 'method',
-      className: 'net.test.Locked',
+      className: 'net.test.LockedMethod',
       memberName: 'tick',
       memberDescriptor: '()V',
     });
-    const finalRes = validateEntryAgainstSource(finalEntry, finalSrc);
+    const finalRes = validateEntryAgainstBytecode(finalEntry, mapOf(lockedFinal));
     expect(finalRes.errors).toEqual([]);
     expect(finalRes.warnings.some((w) => w.includes('overridable'))).toBe(false);
+
+    // Method in a final class -> not overridable.
+    const finalClass = bcClass({
+      name: 'net/test/FinalClass',
+      isFinal: true,
+      methods: [bcMethod('tick', '()V', ['public'])],
+    });
+    const inFinalClass = makeEntry({
+      memberType: 'method',
+      className: 'net.test.FinalClass',
+      memberName: 'tick',
+      memberDescriptor: '()V',
+    });
+    expect(
+      validateEntryAgainstBytecode(inFinalClass, mapOf(finalClass)).warnings.some((w) =>
+        w.includes('overridable'),
+      ),
+    ).toBe(false);
   });
 
   it('suggests a close method name when the targeted method is missing', () => {
-    // Distinct from the "only called, not declared" case: here a real, similarly
-    // named method exists, so the miss produces a "Did you mean" suggestion drawn
-    // from the class's declared method names.
-    const src = `
-package net.test;
-public class Ticker {
-    public void onTick() {}
-}
-`;
+    const cls = bcClass({
+      name: 'net/test/Ticker',
+      methods: [bcMethod('onTick', '()V')],
+    });
     const entry = makeEntry({
       memberType: 'method',
       className: 'net.test.Ticker',
       memberName: 'onTikc',
       memberDescriptor: '()V',
     });
-    const res = validateEntryAgainstSource(entry, src);
+    const res = validateEntryAgainstBytecode(entry, mapOf(cls));
     expect(res.errors.some((e) => e.includes('not found'))).toBe(true);
     expect(res.suggestion).toContain('onTick');
   });
 
   it('warns (does not error) on a method wildcard *() against an existing class', () => {
-    // The class must exist for the wildcard branch to run — the class-existence
-    // guard returns early otherwise. The wildcard itself is never resolved to
-    // members; it just emits the "targets all members" discouragement warning.
-    const src = `
-package net.test;
-public class Widget {
-    public void go() {}
-}
-`;
+    const cls = bcClass({ name: 'net/test/Widget', methods: [bcMethod('go', '()V')] });
     const entry = makeEntry({
       memberType: 'method',
       className: 'net.test.Widget',
@@ -441,65 +507,142 @@ public class Widget {
       memberDescriptor: '()',
       wildcard: true,
     });
-    const res = validateEntryAgainstSource(entry, src);
+    const res = validateEntryAgainstBytecode(entry, mapOf(cls));
     expect(res.errors).toEqual([]);
     expect(res.warnings.some((w) => w.includes('targets all members'))).toBe(true);
   });
 
   it('warns (does not error) on a field wildcard * against an existing class', () => {
-    const src = `
-package net.test;
-public class Widget {
-    public int count;
-}
-`;
+    const cls = bcClass({ name: 'net/test/Widget', fields: [bcField('count')] });
     const entry = makeEntry({
       memberType: 'field',
       className: 'net.test.Widget',
       memberName: '*',
       wildcard: true,
     });
-    const res = validateEntryAgainstSource(entry, src);
+    const res = validateEntryAgainstBytecode(entry, mapOf(cls));
     expect(res.errors).toEqual([]);
     expect(res.warnings.some((w) => w.includes('targets all members'))).toBe(true);
   });
 });
 
-describe('Access Transformer cross-entry quirks', () => {
-  // These checks need the full entry list (allEntries); validateEntryAgainstSource
-  // omits it and skips them. Drive them through validateEntryAgainstSymbols with
-  // extractJavaSymbols(src) and the full directive set.
+describe('Access Transformer regression: issue #12 false positives', () => {
+  // These are the exact cases the reporter hit: bytecode HAS the implicit record
+  // members that decompiled source omits, and a constructor is never overridable.
 
-  it('warns when a widened record has no matching canonical <init> directive', () => {
-    const src = `
-package net.test;
-public record Point(int x, int y) {}
-`;
-    const classEntry = makeEntry({
-      modifier: { access: 'public', final: 'none' },
-      memberType: 'class',
-      className: 'net.test.Point',
-      line: 1,
+  it('finds an implicit record component accessor (no false "not found")', () => {
+    // ExactMatcher(String value): the `value()` accessor is compiler-generated
+    // and absent from decompiled source, but present in bytecode.
+    const rec = bcClass({
+      name: 'net/mc/StatePropertiesPredicate$ExactMatcher',
+      isRecord: true,
+      recordComponents: [{ name: 'value', descriptor: 'Ljava/lang/String;', signature: null }],
+      canonicalConstructor: '(Ljava/lang/String;)V',
+      methods: [
+        bcMethod('<init>', '(Ljava/lang/String;)V', []),
+        bcMethod('value', '()Ljava/lang/String;'),
+      ],
     });
-    const res = validateEntryAgainstSymbols(classEntry, extractJavaSymbols(src), [classEntry]);
+    const entry = makeEntry({
+      memberType: 'method',
+      className: 'net.mc.StatePropertiesPredicate$ExactMatcher',
+      memberName: 'value',
+      memberDescriptor: '()Ljava/lang/String;',
+    });
+    const res = validateEntryAgainstBytecode(entry, mapOf(rec));
+    expect(res.errors).toEqual([]);
+  });
+
+  it('finds an implicit record canonical constructor (no false "not found")', () => {
+    const rec = bcClass({
+      name: 'net/mc/PositionPredicate',
+      isRecord: true,
+      recordComponents: [{ name: 'x', descriptor: 'D', signature: null }],
+      canonicalConstructor: '(D)V',
+      methods: [bcMethod('<init>', '(D)V', [])],
+    });
+    const entry = makeEntry({
+      memberType: 'method',
+      className: 'net.mc.PositionPredicate',
+      memberName: '<init>',
+      memberDescriptor: '(D)V',
+    });
+    const res = validateEntryAgainstBytecode(entry, mapOf(rec));
+    expect(res.errors).toEqual([]);
+  });
+
+  it('does NOT warn that a widened constructor is "overridable" (constructors never are)', () => {
+    // AnyOfCondition <init>(List): a package-private ctor widened to public. The
+    // old source-based check wrongly flagged it as overridable.
+    const cls = bcClass({
+      name: 'net/mc/AnyOfCondition',
+      methods: [bcMethod('<init>', '(Ljava/util/List;)V', [])],
+    });
+    const entry = makeEntry({
+      memberType: 'method',
+      className: 'net.mc.AnyOfCondition',
+      memberName: '<init>',
+      memberDescriptor: '(Ljava/util/List;)V',
+    });
+    const res = validateEntryAgainstBytecode(entry, mapOf(cls));
+    expect(res.errors).toEqual([]);
+    expect(res.warnings.some((w) => w.includes('overridable'))).toBe(false);
+  });
+
+  it('the record-widening note is informational, not a "will crash" claim', () => {
+    const rec = bcClass({
+      name: 'net/mc/Rec',
+      isRecord: true,
+      recordComponents: [{ name: 'value', descriptor: 'Ljava/lang/String;', signature: null }],
+      canonicalConstructor: '(Ljava/lang/String;)V',
+      // Canonical ctor is package-private (not widened).
+      methods: [bcMethod('<init>', '(Ljava/lang/String;)V', [])],
+    });
+    const classEntry = makeEntry({ memberType: 'class', className: 'net.mc.Rec' });
+    const res = validateEntryAgainstBytecode(classEntry, mapOf(rec), [classEntry]);
     const warn = res.warnings.find((w) => w.includes('canonical constructor'));
     expect(warn).toBeDefined();
-    expect(warn).toContain('crash');
+    expect(warn).not.toMatch(/crash/i);
+    expect(warn).toMatch(/INSTANTIATE/);
+  });
+});
+
+describe('Access Transformer cross-entry quirks', () => {
+  // These checks need the full entry list (allEntries) to see sibling directives.
+
+  it('warns when a widened record has no matching canonical <init> directive', () => {
+    const rec = bcClass({
+      name: 'net/test/Point',
+      isRecord: true,
+      recordComponents: [
+        { name: 'x', descriptor: 'I', signature: null },
+        { name: 'y', descriptor: 'I', signature: null },
+      ],
+      canonicalConstructor: '(II)V',
+      methods: [bcMethod('<init>', '(II)V', [])],
+    });
+    const classEntry = makeEntry({ memberType: 'class', className: 'net.test.Point', line: 1 });
+    const res = validateEntryAgainstBytecode(classEntry, mapOf(rec), [classEntry]);
+    const warn = res.warnings.find((w) => w.includes('canonical constructor'));
+    expect(warn).toBeDefined();
     // The reconstructed canonical signature is rendered in the message.
     expect(warn).toContain('void (int, int)');
+    // ... but it is NOT presented as a guaranteed crash (issue #12 correction).
+    expect(warn).not.toMatch(/crash/i);
   });
 
   it('does not warn when a widened record has a matching <init> at equal-or-wider access', () => {
-    const src = `
-package net.test;
-public record Point(int x, int y) {}
-`;
-    const classEntry = makeEntry({
-      modifier: { access: 'public', final: 'none' },
-      memberType: 'class',
-      className: 'net.test.Point',
-      line: 1,
+    const rec = bcClass({
+      name: 'net/test/Point',
+      isRecord: true,
+      recordComponents: [
+        { name: 'x', descriptor: 'I', signature: null },
+        { name: 'y', descriptor: 'I', signature: null },
+      ],
+      canonicalConstructor: '(II)V',
+      methods: [bcMethod('<init>', '(II)V', [])],
     });
+    const classEntry = makeEntry({ memberType: 'class', className: 'net.test.Point', line: 1 });
     const initEntry = makeEntry({
       modifier: { access: 'public', final: 'none' },
       memberType: 'method',
@@ -508,24 +651,22 @@ public record Point(int x, int y) {}
       memberDescriptor: '(II)V',
       line: 2,
     });
-    const res = validateEntryAgainstSymbols(classEntry, extractJavaSymbols(src), [
-      classEntry,
-      initEntry,
-    ]);
+    const res = validateEntryAgainstBytecode(classEntry, mapOf(rec), [classEntry, initEntry]);
     expect(res.warnings.some((w) => w.includes('canonical constructor'))).toBe(false);
   });
 
   it('still warns when the record <init> directive is at narrower access than the class', () => {
-    const src = `
-package net.test;
-public record Point(int x, int y) {}
-`;
-    const classEntry = makeEntry({
-      modifier: { access: 'public', final: 'none' },
-      memberType: 'class',
-      className: 'net.test.Point',
-      line: 1,
+    const rec = bcClass({
+      name: 'net/test/Point',
+      isRecord: true,
+      recordComponents: [
+        { name: 'x', descriptor: 'I', signature: null },
+        { name: 'y', descriptor: 'I', signature: null },
+      ],
+      canonicalConstructor: '(II)V',
+      methods: [bcMethod('<init>', '(II)V', [])],
     });
+    const classEntry = makeEntry({ memberType: 'class', className: 'net.test.Point', line: 1 });
     // private (level 0) < public (level 3): not equal-or-wider -> warning fires.
     const initEntry = makeEntry({
       modifier: { access: 'private', final: 'none' },
@@ -535,83 +676,74 @@ public record Point(int x, int y) {}
       memberDescriptor: '(II)V',
       line: 2,
     });
-    const res = validateEntryAgainstSymbols(classEntry, extractJavaSymbols(src), [
-      classEntry,
-      initEntry,
-    ]);
+    const res = validateEntryAgainstBytecode(classEntry, mapOf(rec), [classEntry, initEntry]);
     expect(res.warnings.some((w) => w.includes('canonical constructor'))).toBe(true);
   });
 
-  it('does not emit a record warning for a widened non-record class', () => {
-    const src = `
-package net.test;
-public class Plain {}
-`;
-    const classEntry = makeEntry({
-      modifier: { access: 'public', final: 'none' },
-      memberType: 'class',
-      className: 'net.test.Plain',
-      line: 1,
+  it('does not warn when the record canonical constructor is already public in bytecode', () => {
+    // If the record's ctor is already public, widening the class needs no extra
+    // ctor directive — so no note at all.
+    const rec = bcClass({
+      name: 'net/test/Open',
+      isRecord: true,
+      recordComponents: [{ name: 'x', descriptor: 'I', signature: null }],
+      canonicalConstructor: '(I)V',
+      methods: [bcMethod('<init>', '(I)V', ['public'])],
     });
-    const res = validateEntryAgainstSymbols(classEntry, extractJavaSymbols(src), [classEntry]);
+    const classEntry = makeEntry({ memberType: 'class', className: 'net.test.Open', line: 1 });
+    const res = validateEntryAgainstBytecode(classEntry, mapOf(rec), [classEntry]);
+    expect(res.warnings.some((w) => w.includes('canonical constructor'))).toBe(false);
+  });
+
+  it('does not emit a record warning for a widened non-record class', () => {
+    const plain = bcClass({ name: 'net/test/Plain' });
+    const classEntry = makeEntry({ memberType: 'class', className: 'net.test.Plain', line: 1 });
+    const res = validateEntryAgainstBytecode(classEntry, mapOf(plain), [classEntry]);
     expect(res.errors).toEqual([]);
     expect(res.warnings.some((w) => w.includes('canonical constructor'))).toBe(false);
   });
 
   it('warns when an inner-class target has an inaccessible, un-widened enclosing class', () => {
-    const src = `
-package net.test;
-class Outer {
-    class Inner {}
-}
-`;
+    const outer = bcClass({ name: 'net/test/Outer', flags: [] }); // package-private
+    const inner = bcClass({
+      name: 'net/test/Outer$Inner',
+      innerClasses: [bcInner('net/test/Outer$Inner', [])],
+    });
     const innerEntry = makeEntry({
-      modifier: { access: 'public', final: 'none' },
       memberType: 'class',
       className: 'net.test.Outer$Inner',
       line: 1,
     });
-    const res = validateEntryAgainstSymbols(innerEntry, extractJavaSymbols(src), [innerEntry]);
+    const res = validateEntryAgainstBytecode(innerEntry, mapOf(outer, inner), [innerEntry]);
     expect(res.warnings.some((w) => w.includes('enclosing class'))).toBe(true);
   });
 
-  it('does not warn when the inner-class enclosing class is already public in source', () => {
-    const src = `
-package net.test;
-public class Outer {
-    public class Inner {}
-}
-`;
+  it('does not warn when the inner-class enclosing class is already public', () => {
+    const outer = bcClass({ name: 'net/test/Outer', flags: ['public'] });
+    const inner = bcClass({ name: 'net/test/Outer$Inner' });
     const innerEntry = makeEntry({
-      modifier: { access: 'public', final: 'none' },
       memberType: 'class',
       className: 'net.test.Outer$Inner',
       line: 1,
     });
-    const res = validateEntryAgainstSymbols(innerEntry, extractJavaSymbols(src), [innerEntry]);
+    const res = validateEntryAgainstBytecode(innerEntry, mapOf(outer, inner), [innerEntry]);
     expect(res.warnings.some((w) => w.includes('enclosing class'))).toBe(false);
   });
 
   it('does not warn when the enclosing class is widened to public via a file directive', () => {
-    const src = `
-package net.test;
-class Outer {
-    class Inner {}
-}
-`;
+    const outer = bcClass({ name: 'net/test/Outer', flags: [] });
+    const inner = bcClass({ name: 'net/test/Outer$Inner' });
     const innerEntry = makeEntry({
-      modifier: { access: 'public', final: 'none' },
       memberType: 'class',
       className: 'net.test.Outer$Inner',
       line: 1,
     });
     const outerEntry = makeEntry({
-      modifier: { access: 'public', final: 'none' },
       memberType: 'class',
       className: 'net.test.Outer',
       line: 2,
     });
-    const res = validateEntryAgainstSymbols(innerEntry, extractJavaSymbols(src), [
+    const res = validateEntryAgainstBytecode(innerEntry, mapOf(outer, inner), [
       innerEntry,
       outerEntry,
     ]);
@@ -619,29 +751,207 @@ class Outer {
   });
 
   it('errors on a non-existent inner class but accepts a real one', () => {
-    // Named nested classes are emitted by the AST walk (dot-qualified, matched
-    // to the `$` form by classNamesMatch), so a bogus inner target is caught by
-    // the class-existence check while the real sibling validates cleanly.
-    const src = `
-package net.test;
-public class Outer {
-    public static class Inner {}
-}
-`;
-    const bogus = makeEntry({
-      memberType: 'class',
-      className: 'net.test.Outer$NonExistent',
-      line: 1,
-    });
-    const bogusRes = validateEntryAgainstSource(bogus, src);
-    expect(bogusRes.errors.some((e) => e.includes('not found'))).toBe(true);
+    const outer = bcClass({ name: 'net/test/Outer', flags: ['public'] });
+    const inner = bcClass({ name: 'net/test/Outer$Inner' });
+    const map = mapOf(outer, inner);
 
-    const real = makeEntry({
-      memberType: 'class',
-      className: 'net.test.Outer$Inner',
-      line: 1,
-    });
-    expect(validateEntryAgainstSource(real, src).errors).toEqual([]);
+    const bogus = makeEntry({ memberType: 'class', className: 'net.test.Outer$NonExistent' });
+    expect(
+      validateEntryAgainstBytecode(bogus, map).errors.some((e) => e.includes('not found')),
+    ).toBe(true);
+
+    const real = makeEntry({ memberType: 'class', className: 'net.test.Outer$Inner' });
+    expect(validateEntryAgainstBytecode(real, map).errors).toEqual([]);
+  });
+});
+
+// --- End-to-end: the reporter's real AT against a compiled fixture JAR -------
+//
+// Reproduces the exact issue-#12 scenario. `summoningrituals-mc-stubs.jar` is a
+// committed fixture whose classes recreate the vanilla 1.21.1 bytecode shapes
+// the Summoning Rituals AT targets (records with implicit accessors + canonical
+// constructors, a package-private constructor, a protected static method). We
+// dump it with the real ASM dumper and validate the mod's verbatim
+// `accesstransformer.cfg` — proving ZERO false-positive errors. Skips when the
+// bundled dumper jar isn't built (dev/CI prerequisite, like bytecode-dumper.test).
+const describeE2E = nodeExistsSync(DUMPER_JAR) ? describe : describe.skip;
+
+describeE2E('Access Transformer end-to-end (Summoning Rituals fixture, issue #12)', () => {
+  async function loadFixtureMap(): Promise<ClassBytecodeMap> {
+    const dump = await getBytecodeDumper().dump(FIXTURE_JAR);
+    return new Map(dump.classes.map((c) => [c.name, c]));
+  }
+
+  it('validates the real Summoning Rituals AT with zero errors', async () => {
+    const svc = getAccessTransformerService();
+    const at = svc.parseAccessTransformerFile(FIXTURE_AT);
+    expect(at.parseErrors).toEqual([]);
+    expect(at.entries).toHaveLength(19);
+
+    const map = await loadFixtureMap();
+
+    const errors: string[] = [];
+    const warnings: string[] = [];
+    for (const entry of at.entries) {
+      const r = validateEntryAgainstBytecode(entry, map, at.entries);
+      errors.push(...r.errors);
+      warnings.push(...r.warnings);
+    }
+
+    // The mod compiles and runs — there must be NO validation errors. Every
+    // former error (record accessors / canonical ctors "not found", the
+    // constructor "overridable" warning) is gone.
+    expect(errors).toEqual([]);
+    expect(warnings.some((w) => w.includes('overridable'))).toBe(false);
+  }, 60000);
+
+  it('only surfaces informational record-widening notes for un-widened record ctors', async () => {
+    const svc = getAccessTransformerService();
+    const at = svc.parseAccessTransformerFile(FIXTURE_AT);
+    const map = await loadFixtureMap();
+
+    const recordNotes: string[] = [];
+    for (const entry of at.entries) {
+      const r = validateEntryAgainstBytecode(entry, map, at.entries);
+      recordNotes.push(...r.warnings.filter((w) => w.includes('canonical constructor')));
+    }
+
+    // Exactly the three records whose canonical ctor the AT does NOT widen:
+    // ExactMatcher, PropertyMatcher, RangedMatcher. PositionPredicate is exempt
+    // because line 2 of the AT widens its constructor.
+    expect(recordNotes).toHaveLength(3);
+    expect(recordNotes.every((w) => /INSTANTIATE/.test(w))).toBe(true);
+    expect(recordNotes.some((w) => /crash/i.test(w))).toBe(false);
+    expect(recordNotes.some((w) => w.includes('ExactMatcher'))).toBe(true);
+    expect(recordNotes.some((w) => w.includes('PropertyMatcher'))).toBe(true);
+    expect(recordNotes.some((w) => w.includes('RangedMatcher'))).toBe(true);
+    expect(recordNotes.some((w) => w.includes('PositionPredicate'))).toBe(false);
+  }, 60000);
+});
+
+// --- Drift guard: the stub must keep reproducing real 1.21.1 shapes ----------
+//
+// The committed stub can only diverge from vanilla if someone edits its sources
+// (1.21.1 itself is a frozen release). This pins the stub's bytecode to the
+// exact facts the validator relies on — every number below is the real 1.21.1
+// mojmap value (verified against `javap` on the remapped JAR, see issue #12's
+// log). Any edit that drops an accessor, flips a record to a class, or changes a
+// targeted descriptor fails here. The manual real-MC test additionally asserts
+// stub == freshly-downloaded vanilla (belt and suspenders).
+describeE2E('Access Transformer fixture fidelity (issue #12 drift guard)', () => {
+  const vis = (flags: string[]): string =>
+    flags.includes('public')
+      ? 'public'
+      : flags.includes('protected')
+        ? 'protected'
+        : flags.includes('private')
+          ? 'private'
+          : 'package';
+
+  let byName: Map<string, BytecodeClass>;
+
+  beforeAll(async () => {
+    const dump = await getBytecodeDumper().dump(FIXTURE_JAR);
+    byName = new Map(dump.classes.map((c) => [c.name, c]));
+  }, 60000);
+
+  const P = 'net/minecraft/advancements/critereon';
+  const L = 'net/minecraft/world/level/storage/loot';
+
+  // Each record: isRecord + exact canonical-ctor descriptor + the implicit
+  // accessors the AT targets (name -> descriptor). These accessors are the exact
+  // members that decompiled source omits and that the pre-fix validator wrongly
+  // reported "not found".
+  const records: Array<{
+    name: string;
+    canon: string;
+    accessors: Record<string, string>;
+  }> = [
+    {
+      name: `${P}/LocationPredicate$PositionPredicate`,
+      canon: `(L${P}/MinMaxBounds$Doubles;L${P}/MinMaxBounds$Doubles;L${P}/MinMaxBounds$Doubles;)V`,
+      accessors: {
+        x: `()L${P}/MinMaxBounds$Doubles;`,
+        y: `()L${P}/MinMaxBounds$Doubles;`,
+        z: `()L${P}/MinMaxBounds$Doubles;`,
+      },
+    },
+    {
+      name: `${P}/StatePropertiesPredicate$ExactMatcher`,
+      canon: '(Ljava/lang/String;)V',
+      accessors: { value: '()Ljava/lang/String;' },
+    },
+    {
+      name: `${P}/StatePropertiesPredicate$PropertyMatcher`,
+      canon: `(Ljava/lang/String;L${P}/StatePropertiesPredicate$ValueMatcher;)V`,
+      accessors: {
+        name: '()Ljava/lang/String;',
+        valueMatcher: `()L${P}/StatePropertiesPredicate$ValueMatcher;`,
+      },
+    },
+    {
+      name: `${P}/StatePropertiesPredicate$RangedMatcher`,
+      canon: '(Ljava/util/Optional;Ljava/util/Optional;)V',
+      accessors: { minValue: '()Ljava/util/Optional;', maxValue: '()Ljava/util/Optional;' },
+    },
+  ];
+
+  it.each(records)('record $name reproduces its 1.21.1 shape', ({ name, canon, accessors }) => {
+    const cls = byName.get(name);
+    expect(cls, `${name} missing from fixture`).toBeDefined();
+    if (!cls) return;
+    // The record + its compiler-generated canonical constructor.
+    expect(cls.isRecord).toBe(true);
+    expect(cls.canonicalConstructor).toBe(canon);
+    const ctor = cls.methods.find((m) => m.name === '<init>' && m.desc === canon);
+    expect(ctor, `${name} canonical <init> ${canon} missing`).toBeDefined();
+    // Real 1.21.1: these canonical ctors are non-public (the record-widening note
+    // hinges on this). javac emits package-private where Mojang emits private —
+    // both non-public, so the note behaves identically.
+    expect(vis(ctor?.flags ?? [])).not.toBe('public');
+    // The implicit component accessors — present in bytecode, absent from source.
+    for (const [accName, accDesc] of Object.entries(accessors)) {
+      const acc = cls.methods.find((m) => m.name === accName && m.desc === accDesc);
+      expect(acc, `${name}#${accName}${accDesc} missing`).toBeDefined();
+    }
+  });
+
+  it('IntRange is a plain class with the private (NumberProvider, NumberProvider) ctor + min/max', () => {
+    const cls = byName.get(`${L}/IntRange`);
+    expect(cls?.isRecord).toBe(false);
+    const ctorDesc = `(L${L}/providers/number/NumberProvider;L${L}/providers/number/NumberProvider;)V`;
+    expect(cls?.methods.some((m) => m.name === '<init>' && m.desc === ctorDesc)).toBe(true);
+    expect(cls?.fields.some((f) => f.name === 'min')).toBe(true);
+    expect(cls?.fields.some((f) => f.name === 'max')).toBe(true);
+  });
+
+  it('AnyOfCondition <init>(List) is a non-public CONSTRUCTOR (never "overridable")', () => {
+    const cls = byName.get(`${L}/predicates/AnyOfCondition`);
+    expect(cls?.isRecord).toBe(false);
+    const ctor = cls?.methods.find((m) => m.name === '<init>' && m.desc === '(Ljava/util/List;)V');
+    expect(ctor, 'AnyOfCondition <init>(List)V missing').toBeDefined();
+    expect(vis(ctor?.flags ?? [])).not.toBe('public');
+  });
+
+  it('CompositeLootItemCondition.createInlineCodec is protected+static; terms field present', () => {
+    const cls = byName.get(`${L}/predicates/CompositeLootItemCondition`);
+    const m = cls?.methods.find(
+      (mm) =>
+        mm.name === 'createInlineCodec' &&
+        mm.desc === '(Ljava/util/function/Function;)Lcom/mojang/serialization/Codec;',
+    );
+    expect(m, 'createInlineCodec missing').toBeDefined();
+    expect(m?.flags).toContain('static');
+    expect(vis(m?.flags ?? [])).toBe('protected');
+    expect(cls?.fields.some((f) => f.name === 'terms')).toBe(true);
+  });
+
+  it('ClientTextTooltip.text and WitherBoss.yRotHeads/yRotOHeads fields exist', () => {
+    const tip = byName.get('net/minecraft/client/gui/screens/inventory/tooltip/ClientTextTooltip');
+    expect(tip?.fields.some((f) => f.name === 'text')).toBe(true);
+    const wither = byName.get('net/minecraft/world/entity/boss/wither/WitherBoss');
+    expect(wither?.fields.some((f) => f.name === 'yRotHeads')).toBe(true);
+    expect(wither?.fields.some((f) => f.name === 'yRotOHeads')).toBe(true);
   });
 });
 
@@ -668,7 +978,7 @@ describe('Conflict detection', () => {
   // `detectAccessTransformerConflicts` is the pure conflict-detection helper
   // extracted from the service so it is unit-testable without a decompiled
   // Minecraft source tree (the full `validateAccessTransformer` flow only
-  // reaches conflict detection after the decompiled-source check passes).
+  // reaches conflict detection after the source-availability check passes).
   const method = (over: Partial<AccessTransformerEntry>): AccessTransformerEntry =>
     makeEntry({
       modifier: { access: 'public', final: 'none' },
@@ -753,8 +1063,9 @@ describe('Conflict detection', () => {
   });
 
   it('validateAccessTransformer short-circuits on a non-decompiled version', async () => {
-    // Confirms the guard path: without a decompiled tree, the validator reports
-    // the missing-source error and never reaches conflict detection.
+    // Confirms the guard path: without a remapped JAR (produced by decompiling),
+    // the validator reports the missing-source error and never reaches conflict
+    // detection.
     const svc = getAccessTransformerService();
     const at: AccessTransformer = {
       entries: [
@@ -765,12 +1076,12 @@ describe('Conflict detection', () => {
     };
     const res = await svc.validateAccessTransformer(at, '0.0.0-conflict-test', 'mojmap');
     expect(res.isValid).toBe(false);
-    expect(res.errors.some((e) => e.message.includes('not decompiled'))).toBe(true);
+    expect(res.errors.some((e) => e.message.includes('not available'))).toBe(true);
   });
 });
 
 describe('validate_access_transformer tool', () => {
-  it('returns a well-formed parse + validation envelope', async () => {
+  it('returns a compact, verdict-first envelope', async () => {
     const result = await handleValidateAccessTransformer({
       // Second line is a 3-token field directive (`exampleField`) so the file
       // parses to exactly 2 entries with no parse errors.
@@ -779,11 +1090,18 @@ describe('validate_access_transformer tool', () => {
     });
     expect(result.content).toHaveLength(1);
     const data = JSON.parse(result.content[0]?.text ?? '');
-    expect(data.accessTransformer.entryCount).toBe(2);
-    expect(data.accessTransformer.parseErrorCount).toBe(0);
-    expect(typeof data.validation.isValid).toBe('boolean');
-    expect(Array.isArray(data.validation.errors)).toBe(true);
-    expect(Array.isArray(data.validation.warnings)).toBe(true);
+    // Verdict + one-line summary up front (the tool-ran flag lives on the outer
+    // CLI/MCP envelope, not here).
+    expect(typeof data.valid).toBe('boolean');
+    expect(data.summary).toContain('2 entries');
+    expect(data.version).toBe(TEST_VERSION);
+    // No parse errors -> the parseErrors section is omitted entirely (compact).
+    expect(data.parseErrors).toBeUndefined();
+    // Findings, when present, are one-line directive strings (no nested entry).
+    for (const f of data.errors ?? []) {
+      expect(typeof f.directive).toBe('string');
+      expect(typeof f.line).toBe('number');
+    }
   }, 30000);
 
   it('collects bad lines instead of throwing on garbage content', async () => {
@@ -793,7 +1111,9 @@ describe('validate_access_transformer tool', () => {
     });
     expect(result.content).toHaveLength(1);
     const data = JSON.parse(result.content[0]?.text ?? '');
-    expect(data.accessTransformer.entryCount).toBe(0);
-    expect(data.accessTransformer.parseErrorCount).toBeGreaterThan(0);
+    expect(data.summary).toContain('0 entries');
+    expect(Array.isArray(data.parseErrors)).toBe(true);
+    expect(data.parseErrors.length).toBeGreaterThan(0);
+    expect(data.summary).toMatch(/parse error/);
   }, 30000);
 });

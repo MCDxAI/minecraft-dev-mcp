@@ -355,14 +355,14 @@ describe('Mojmap Tiny v2 Structure Verification', () => {
 
     // Find Entity class line
     const entityLineIdx = lines.findIndex(
-      (l) => l.startsWith('c\t') && l.includes('Entity') && !l.includes('EntityType')
+      (l) => l.startsWith('c\t') && l.includes('Entity') && !l.includes('EntityType'),
     );
     expect(entityLineIdx).toBeGreaterThan(0);
 
     // The line immediately after a class definition should be a field or method
     // (starts with a tab character), NOT another class definition
     const nextLine = lines[entityLineIdx + 1];
-    if (nextLine && nextLine.trim()) {
+    if (nextLine?.trim()) {
       // If there's content, it should be a nested member (starts with tab)
       // or another class (no tab). We're checking that fields/methods
       // ARE nested under classes, not grouped separately.
@@ -414,7 +414,7 @@ describe('Mojmap Tiny v2 Structure Verification', () => {
       TEST_VERSION,
       'tick',
       'mojmap',
-      'intermediary'
+      'intermediary',
     );
 
     expect(result.found).toBe(true);
@@ -455,28 +455,23 @@ describe('Unobfuscated version handling', () => {
 
   it('should throw actionable error for getMappings(yarn) on unobfuscated version', async () => {
     const mappingService = getMappingService();
-    await expect(
-      mappingService.getMappings(UNOBFUSCATED_TEST_VERSION, 'yarn'),
-    ).rejects.toThrow(/unobfuscated.*mojmap/is);
+    await expect(mappingService.getMappings(UNOBFUSCATED_TEST_VERSION, 'yarn')).rejects.toThrow(
+      /unobfuscated.*mojmap/is,
+    );
   }, 30000);
 
   it('should throw actionable error for getMappings(mojmap) on unobfuscated version', async () => {
     const mappingService = getMappingService();
-    await expect(
-      mappingService.getMappings(UNOBFUSCATED_TEST_VERSION, 'mojmap'),
-    ).rejects.toThrow(/unobfuscated.*already in Mojang/is);
+    await expect(mappingService.getMappings(UNOBFUSCATED_TEST_VERSION, 'mojmap')).rejects.toThrow(
+      /unobfuscated.*already in Mojang/is,
+    );
   }, 30000);
 
   it('should throw actionable error for lookupMapping on unobfuscated version', async () => {
     const mappingService = getMappingService();
     // lookupMapping calls getMappings internally, which throws for unobfuscated versions
     await expect(
-      mappingService.lookupMapping(
-        UNOBFUSCATED_TEST_VERSION,
-        'Entity',
-        'mojmap',
-        'yarn',
-      ),
+      mappingService.lookupMapping(UNOBFUSCATED_TEST_VERSION, 'Entity', 'mojmap', 'yarn'),
     ).rejects.toThrow(/unobfuscated/i);
   }, 30000);
 

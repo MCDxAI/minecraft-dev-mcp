@@ -12,20 +12,23 @@
  * `class`/`method`/`field` keyword), a method descriptor attached to the name
  * with no spaces, and first-class final control.
  *
- * Validation is tree-sitter based: decompiled Java source is parsed once into an
- * AST (via `extractJavaSymbols`) and entries are correlated against the declared
- * symbols. There is NO regex Java-source inspection — the only string-pattern
- * operations are AT-file-format parsing (`parseEntry`), class-name/path
- * conversion, and JVM descriptor decode (shared via `descriptor-utils`). This is
- * required by the spec (section 9).
- *
  * Default mapping is `'mojmap'` (NOT `'yarn'` like the AW tool): Forge/NeoForge
  * dev toolchains are mojmap-only post-1.17 (spec 6.3).
+ *
+ * GROUND TRUTH IS BYTECODE, NOT DECOMPILED SOURCE. Validation runs against the
+ * remapped Minecraft JAR via the ASM bytecode-dumper (see
+ * `bytecode-index-service.ts`), NOT VineFlower `.java`. Decompiled source omits
+ * compiler-generated members — a record's canonical constructor and its
+ * component accessors (`value()`, `name()`, …) — so a source-based check reports
+ * them as "not found" even though they exist in the class file the AT is
+ * actually applied to. Bytecode has every member with its true access flags and
+ * erased descriptors — the same facts `javap` shows — which eliminates that
+ * whole class of false positives (issue #12).
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { getCacheManager } from '../cache/cache-manager.js';
+import type { BytecodeClass, BytecodeMethod } from '../java/bytecode-dumper.js';
 import type {
   AccessTransformerParseError as ATParseError,
   AccessTransformer,
@@ -35,33 +38,25 @@ import type {
   AccessTransformerValidation,
   MappingType,
 } from '../types/minecraft.js';
-import {
-  classNamesMatch,
-  descriptorsCompatible,
-  javaTypeToDescriptor,
-  paramToDescriptor,
-  parseParamDescriptors,
-  descriptorToReadable as sharedDescriptorToReadable,
-} from '../utils/descriptor-utils.js';
+import { descriptorToReadable as sharedDescriptorToReadable } from '../utils/descriptor-utils.js';
 import { AccessTransformerParseError } from '../utils/errors.js';
-import { extractJavaSymbols } from '../utils/java-symbols.js';
-import type { JavaSymbol } from '../utils/java-symbols.js';
 import { logger } from '../utils/logger.js';
-import { getDecompiledPath } from '../utils/paths.js';
-import { findSimilarClassFile, findSimilarName } from '../utils/suggestions.js';
+import { findSimilarName } from '../utils/suggestions.js';
+import { getBytecodeIndexService } from './bytecode-index-service.js';
+
+/** A map of internal class name (slashes, `$`) → its authoritative bytecode metadata. */
+export type ClassBytecodeMap = Map<string, BytecodeClass>;
 
 // ---------------------------------------------------------------------------
-// AT-local modifier + descriptor helpers (module-internal)
+// AT-local modifier + parsing helpers (module-internal)
 // ---------------------------------------------------------------------------
 //
-// `parseModifier` / `looksLikeDescriptor` / `buildMethodDescriptor` /
-// `methodDescriptorMatches` / `methodDescriptorsMatch` are AT-validation-shaped.
-// The generic primitives they build on — `javaTypeToDescriptor`,
-// `paramToDescriptor`, `parseParamDescriptors`, `descriptorsCompatible`,
-// `classNamesMatch` — live in `../utils/descriptor-utils.js` (shared with the
-// AW + mixin validators). `descriptorToReadable` (descriptor decode) and the
-// edit-distance suggestion helpers live in `descriptor-utils.js` /
-// `suggestions.js` respectively.
+// `parseModifier` / `looksLikeDescriptor` handle AT-file-format parsing.
+// Member correlation is done directly against bytecode descriptors (erased,
+// fully-qualified JVM form), so it is exact string comparison — no AST symbol
+// reconstruction or simple-name fuzzy matching is needed. `descriptorToReadable`
+// (descriptor decode) and the edit-distance suggestion helper live in
+// `descriptor-utils.js` / `suggestions.js` respectively.
 
 /** The four raw JVM visibility keywords an AT entry may use. */
 const ACCESS_KEYWORDS = new Set<string>(['public', 'protected', 'default', 'private']);
@@ -115,6 +110,24 @@ function sameModifier(a: AccessTransformerModifier, b: AccessTransformerModifier
 }
 
 /**
+ * Render a parsed entry back to its one-line AT directive text (the same shape
+ * the user wrote it as, e.g. `public net.mc.Foo value()Ljava/lang/String;`).
+ * Used to keep tool output compact — a finding shows this string instead of the
+ * full nested entry object.
+ */
+export function accessTransformerEntryToString(entry: AccessTransformerEntry): string {
+  const mod = modifierToString(entry.modifier);
+  if (entry.memberType === 'class' || !entry.memberName) {
+    return `${mod} ${entry.className}`;
+  }
+  const member =
+    entry.memberType === 'method'
+      ? `${entry.memberName}${entry.memberDescriptor ?? ''}`
+      : entry.memberName;
+  return `${mod} ${entry.className} ${member}`;
+}
+
+/**
  * Two modifiers are "incompatible" (Forge fails the build —
  * "Invalid AT final conflicts") when the access levels differ OR one wants
  * `+f` while the other wants `-f`. `+f` vs none is a compatible variation.
@@ -141,205 +154,181 @@ function looksLikeDescriptor(token: string): boolean {
   return false;
 }
 
-/** Build the JVM descriptor string for an AST method/constructor symbol. */
-function buildMethodDescriptor(method: JavaSymbol): string {
-  const params = method.parameters ?? [];
-  return `(${params.map(paramToDescriptor).join('')})${javaTypeToDescriptor(method.returnType ?? 'void')}`;
+/** Convert an AT dotted+`$` class name to an internal JVM name (slashes). */
+function toInternalName(className: string): string {
+  return className.replace(/\./g, '/');
 }
 
-/** Compare an AST method/constructor against a raw JVM method descriptor. */
-function methodDescriptorMatches(
-  method: JavaSymbol,
-  descriptor: string,
-): { match: boolean; reason?: string } {
-  const open = descriptor.indexOf('(');
-  const close = descriptor.indexOf(')');
-  if (open < 0 || close < 0 || close <= open) {
-    return { match: false, reason: `Malformed method descriptor: ${descriptor}` };
-  }
-
-  const descParams = parseParamDescriptors(descriptor.slice(open + 1, close));
-  const descReturn = descriptor.slice(close + 1);
-
-  const params = method.parameters ?? [];
-  const astParams = params.map(paramToDescriptor);
-  const astReturn = javaTypeToDescriptor(method.returnType ?? 'void');
-
-  if (astParams.length !== descParams.length) {
-    return { match: false, reason: `arity ${astParams.length} vs ${descParams.length}` };
-  }
-  for (let i = 0; i < astParams.length; i++) {
-    if (!descriptorsCompatible(astParams[i], descParams[i])) {
-      return { match: false, reason: `param ${i}: ${astParams[i]} vs ${descParams[i]}` };
-    }
-  }
-  if (!descriptorsCompatible(astReturn, descReturn)) {
-    return { match: false, reason: `return: ${astReturn} vs ${descReturn}` };
-  }
-  return { match: true };
+/** Map a decoded JVM access-flag list to the AT visibility keyword. */
+function accessFromFlags(flags: string[]): AccessTransformerAccess {
+  if (flags.includes('public')) return 'public';
+  if (flags.includes('protected')) return 'protected';
+  if (flags.includes('private')) return 'private';
+  return 'default';
 }
 
 /**
- * Compare two RAW JVM method descriptors for parameter/return compatibility
- * (simple-name based, like the AST comparison). Used by the record
- * canonical-constructor check (quirk 6.2) to match a reconstructed canonical
- * descriptor against an `<init>` directive written in the file.
+ * The effective visibility of a class. For a top-level class the class-file
+ * access bits are authoritative; for a nested class the real visibility
+ * (public/protected/private/package) lives in the enclosing `InnerClasses`
+ * attribute — a class file records an `InnerClasses` entry for itself, so we
+ * read the flags of the entry whose `name` equals the class's own name.
  */
-function methodDescriptorsMatch(a: string, b: string): boolean {
-  const openA = a.indexOf('(');
-  const closeA = a.indexOf(')');
-  const openB = b.indexOf('(');
-  const closeB = b.indexOf(')');
-  if (openA < 0 || closeA < 0 || openB < 0 || closeB < 0) return a === b;
-
-  const paramsA = parseParamDescriptors(a.slice(openA + 1, closeA));
-  const paramsB = parseParamDescriptors(b.slice(openB + 1, closeB));
-  const returnA = a.slice(closeA + 1);
-  const returnB = b.slice(closeB + 1);
-
-  if (paramsA.length !== paramsB.length) return false;
-  for (let i = 0; i < paramsA.length; i++) {
-    if (!descriptorsCompatible(paramsA[i], paramsB[i])) return false;
+function classVisibility(cls: BytecodeClass): AccessTransformerAccess {
+  if (cls.name.includes('$')) {
+    const self = cls.innerClasses.find((ic) => ic.name === cls.name);
+    if (self) return accessFromFlags(self.flags);
   }
-  return descriptorsCompatible(returnA, returnB);
+  return accessFromFlags(cls.flags);
 }
 
-// ---------------------------------------------------------------------------
-// Pure helpers: member-name correlation + overridability (module-internal)
-// ---------------------------------------------------------------------------
-
-/** Unique regular (non-constructor) method names declared by the given class symbols. */
-function uniqueMethodNames(classSymbols: JavaSymbol[]): string[] {
-  const set = new Set<string>();
-  for (const s of classSymbols) {
-    if (s.entryType === 'method' && s.isConstructor !== true && s.symbol) set.add(s.symbol);
-  }
-  return [...set];
+/** Simple (last-segment) name of an internal class name, for suggestions. */
+function simpleClassName(internal: string): string {
+  const slash = internal.lastIndexOf('/');
+  const tail = slash >= 0 ? internal.slice(slash + 1) : internal;
+  const dollar = tail.lastIndexOf('$');
+  return dollar >= 0 ? tail.slice(dollar + 1) : tail;
 }
 
-/** Unique field names declared by the given class symbols. */
-function uniqueFieldNames(classSymbols: JavaSymbol[]): string[] {
-  const set = new Set<string>();
-  for (const s of classSymbols) {
-    if (s.entryType === 'field' && s.symbol) set.add(s.symbol);
-  }
-  return [...set];
+/** Package (path portion) of an internal class name, or '' for the default package. */
+function packageOf(internal: string): string {
+  const slash = internal.lastIndexOf('/');
+  return slash >= 0 ? internal.slice(0, slash) : '';
 }
 
 /**
- * Is a method symbol overridable (and thus subject to the override-narrowing
- * gotcha, quirk 6.3)? Overridable = not final, not static, not private, and
- * declared in a non-final class.
+ * Pick the best "did you mean" class name for a missing target. Draws from
+ * `pool` (JAR-wide internal names) restricted to the SAME package as the target,
+ * so suggestions stay relevant and bounded — a typo'd package yields nothing
+ * rather than a misleading match three packages away.
  */
-function isOverridable(method: JavaSymbol, classFinal: boolean): boolean {
-  const mods = method.modifiers ?? [];
-  if (method.isFinal === true || mods.includes('final')) return false;
-  if (method.isStatic === true || mods.includes('static')) return false;
-  if (mods.includes('private')) return false;
-  if (classFinal) return false;
-  return true;
+function suggestClassName(targetInternal: string, pool: string[]): string | null {
+  const pkg = packageOf(targetInternal);
+  const samePackage = pool.filter((n) => packageOf(n) === pkg).map(simpleClassName);
+  return findSimilarName(simpleClassName(targetInternal), samePackage);
+}
+
+/**
+ * Is a method overridable (subject to the override-narrowing gotcha, quirk 6.3)?
+ * Constructors and static initializers are NOT overridable — a constructor is
+ * never inherited, so an AT on `<init>` can never be defeated by a subclass
+ * override (the previous source-based check wrongly flagged constructors).
+ * Overridable = instance method, not final/static/private, in a non-final class.
+ */
+function isMethodOverridable(method: BytecodeMethod, cls: BytecodeClass): boolean {
+  if (method.name === '<init>' || method.name === '<clinit>') return false;
+  if (
+    method.flags.includes('final') ||
+    method.flags.includes('static') ||
+    method.flags.includes('private')
+  ) {
+    return false;
+  }
+  return !cls.isFinal;
 }
 
 // ---------------------------------------------------------------------------
-// Core validation against extracted symbols
+// Core validation against authoritative bytecode
 // ---------------------------------------------------------------------------
 
 /**
- * Validate a single access-transformer entry against the AST symbols of its
- * class. Pure: no filesystem, no I/O. This is the heart of the validator.
+ * Validate a single access-transformer entry against the bytecode metadata of
+ * its class (and, for the cross-entry quirks, the whole file's classes). Pure:
+ * no filesystem, no I/O.
+ *
+ * `classMap` is keyed by internal class name (slashes, `$`) and must already
+ * contain the entry's class and — for nested targets — its enclosing classes.
+ * Because bytecode carries every compiler-generated member (record canonical
+ * constructors, component accessors) with true access flags and erased
+ * descriptors, member existence is an exact lookup and descriptor matching is
+ * exact string comparison — no source omissions to work around.
  *
  * `allEntries` (the full parsed file) enables the cross-entry quirk checks:
  * record canonical-constructor widening (6.2) and inner-class enclosing-class
- * accessibility (6.1). When omitted (e.g. via the `validateEntryAgainstSource`
- * test seam) those file-level checks are skipped and only per-member existence
- * and signature checks run.
+ * accessibility (6.1). When omitted, those file-level checks are skipped.
  *
  * @internal
  */
-export function validateEntryAgainstSymbols(
+export function validateEntryAgainstBytecode(
   entry: AccessTransformerEntry,
-  symbols: JavaSymbol[],
+  classMap: ClassBytecodeMap,
   allEntries?: AccessTransformerEntry[],
+  classSuggestionPool?: string[],
 ): { errors: string[]; warnings: string[]; suggestion?: string } {
   const errors: string[] = [];
   const warnings: string[] = [];
   let suggestion: string | undefined;
 
-  // Symbols declared by the entry's class. `classNamesMatch` reconciles JVM
-  // inner-class `$` separators with the AST's dotted declaringClass. Inner
-  // classes share their enclosing class's `.java` file, so the enclosing type's
-  // symbols are present in this same `symbols` array.
-  const classSymbols = symbols.filter((s) => classNamesMatch(entry.className, s.declaringClass));
+  const internal = toInternalName(entry.className);
+  const cls = classMap.get(internal);
 
-  // The target class must actually be declared. Named nested classes (regular,
-  // record, enum) are emitted by the AST walk with dot-qualified names, which
-  // `classNamesMatch` reconciles with the JVM `$` form — so a non-existent inner
-  // class (e.g. `Outer$NonExistent`) resolves to no class symbol and is caught
-  // here rather than silently passing. `classSym` is then reused below for the
-  // record and final-modifier checks.
-  const classSym = classSymbols.find((s) => s.entryType === 'class');
-  if (!classSym) {
+  // The target class must exist in the JAR. Nested classes are separate class
+  // files, so `Outer$NonExistent` simply has no entry and is caught here.
+  if (!cls) {
     errors.push(`Class '${entry.className}' not found`);
+    // Suggest from the JAR-wide class list (same package) when the caller
+    // supplies it; fall back to the loaded classMap for pure/unit callers.
+    const pool = classSuggestionPool ?? [...classMap.keys()];
+    const similar = suggestClassName(internal, pool);
+    if (similar) suggestion = `Did you mean a class named: ${similar}?`;
     return { errors, warnings, suggestion };
   }
 
   // --- Inner-class enclosing-class accessibility (quirk 6.1) ---
-  // Runs for ANY entry whose class is nested (`$` present): reaching a nested
-  // type through an inaccessible enclosing type is a Java access error. Per the
-  // issue, check the IMMEDIATE enclosing class only; transitive coverage emerges
-  // as each nesting level is targeted by its own directive.
-  if (allEntries && entry.className.includes('$')) {
-    const enclosing = entry.className.split('$').slice(0, -1).join('$');
-    const enclosingSym = symbols.find(
-      (s) => s.entryType === 'class' && classNamesMatch(enclosing, s.declaringClass),
-    );
-    const enclosingAlreadyAccessible =
-      !!enclosingSym &&
-      (enclosingSym.modifiers?.includes('public') === true ||
-        enclosingSym.modifiers?.includes('protected') === true);
+  // Reaching a nested type through an inaccessible enclosing type is a Java
+  // access error. Check the IMMEDIATE enclosing class only; deeper nesting is
+  // covered as each level is targeted by its own directive.
+  if (allEntries && internal.includes('$')) {
+    const enclosing = internal.slice(0, internal.lastIndexOf('$'));
+    const enclosingCls = classMap.get(enclosing);
+    const enclosingAccessible =
+      !!enclosingCls &&
+      (classVisibility(enclosingCls) === 'public' || classVisibility(enclosingCls) === 'protected');
     const widenedInFile = allEntries.some(
       (e) =>
         e.memberType === 'class' &&
-        classNamesMatch(e.className, enclosing) &&
+        toInternalName(e.className) === enclosing &&
         (e.modifier.access === 'public' || e.modifier.access === 'protected'),
     );
-    if (!enclosingAlreadyAccessible && !widenedInFile) {
+    if (!enclosingAccessible && !widenedInFile) {
       warnings.push(
-        `Inner class '${entry.className}' targets an enclosing class '${enclosing}' that is not public/protected and not widened in this file — Java requires the enclosing class to be accessible`,
+        `Inner class '${entry.className}' targets an enclosing class '${enclosing.replace(/\//g, '.')}' that is not public/protected and not widened in this file — Java requires the enclosing class to be accessible`,
       );
     }
   }
 
   // --- Class-level entry ---
   if (entry.memberType === 'class') {
-    // Record canonical-constructor widening (quirk 6.2). Widening a record to
-    // public/protected does NOT widen its canonical <init> (component accessors
-    // do widen), violating record semantics and crashing at runtime. Reconstruct
-    // the canonical-ctor descriptor from the record components in order and
-    // require a matching <init> directive at equal-or-wider access.
+    // Record canonical-constructor widening (quirk 6.2). A widened record whose
+    // canonical constructor stays narrower cannot be INSTANTIATED at the widened
+    // access — but reading its components or codec is fine (records don't need a
+    // widened ctor for that). So this is an informational note, not a crash: we
+    // only surface it when bytecode shows the canonical ctor is actually narrower
+    // than the class's new access AND the file doesn't already widen it.
     if (
       allEntries &&
+      cls.isRecord &&
+      cls.canonicalConstructor &&
       (entry.modifier.access === 'public' || entry.modifier.access === 'protected')
     ) {
-      if (classSym.kind === 'record') {
-        const components = classSym.recordComponents ?? [];
-        const canonicalDesc = `(${components.map(paramToDescriptor).join('')})V`;
-        const classLevel = ACCESS_LEVEL[entry.modifier.access];
-        const hasMatchingInit = allEntries.some(
-          (e) =>
-            e.memberType === 'method' &&
-            e.memberName === '<init>' &&
-            classNamesMatch(e.className, entry.className) &&
-            ACCESS_LEVEL[e.modifier.access] >= classLevel &&
-            methodDescriptorsMatch(e.memberDescriptor ?? '', canonicalDesc),
+      const canonical = cls.canonicalConstructor;
+      const ctor = cls.methods.find((m) => m.name === '<init>' && m.desc === canonical);
+      const classLevel = ACCESS_LEVEL[entry.modifier.access];
+      const ctorLevel = ctor ? ACCESS_LEVEL[accessFromFlags(ctor.flags)] : 0;
+      const widenedInFile = allEntries.some(
+        (e) =>
+          e.memberType === 'method' &&
+          e.memberName === '<init>' &&
+          toInternalName(e.className) === internal &&
+          e.memberDescriptor === canonical &&
+          ACCESS_LEVEL[e.modifier.access] >= classLevel,
+      );
+      if (!widenedInFile && ctorLevel < classLevel) {
+        warnings.push(
+          `Record '${entry.className}' is widened to ${entry.modifier.access} but its canonical constructor ${sharedDescriptorToReadable(
+            canonical,
+          )} is not (currently ${ctor ? accessFromFlags(ctor.flags) : 'package-private'}). This only matters if you INSTANTIATE the record (e.g. 'new', or codec/network deserialization in your code); reading its components or codec needs no ctor widening. If you do construct it, also add: '${entry.modifier.access} ${entry.className} <init>${canonical}'.`,
         );
-        if (!hasMatchingInit) {
-          warnings.push(
-            `Record '${entry.className}' is widened but its canonical constructor ${sharedDescriptorToReadable(
-              canonicalDesc,
-            )} is not widened to equal-or-wider access — the game will crash at runtime`,
-          );
-        }
       }
     }
     return { errors, warnings, suggestion };
@@ -347,15 +336,6 @@ export function validateEntryAgainstSymbols(
 
   // --- Method entry ---
   if (entry.memberType === 'method' && entry.memberName) {
-    // Static initializers are intentionally not emitted by the AST walk. They
-    // are rare and genuinely unverifiable from decompiled source.
-    if (entry.memberName === '<clinit>') {
-      warnings.push(
-        "'<clinit>' (static initializer) cannot be validated from decompiled source — verify manually",
-      );
-      return { errors, warnings, suggestion };
-    }
-
     if (entry.wildcard) {
       warnings.push(
         "Wildcard '*()' targets all members — discouraged and may be removed from the AT spec",
@@ -363,44 +343,40 @@ export function validateEntryAgainstSymbols(
       return { errors, warnings, suggestion };
     }
 
-    const isCtor = entry.memberName === '<init>';
-    // Only DECLARED members are seen here — call sites and comments are not, so
-    // a method that is merely called (but not declared) is correctly reported
-    // as missing.
-    const methodSyms = classSymbols.filter((s) =>
-      isCtor
-        ? s.entryType === 'method' && s.isConstructor === true
-        : s.entryType === 'method' && s.isConstructor !== true && s.symbol === entry.memberName,
-    );
+    const methodSyms = cls.methods.filter((m) => m.name === entry.memberName);
 
     if (methodSyms.length === 0) {
       errors.push(`Method '${entry.memberName}' not found in ${entry.className}`);
-      const similar = findSimilarName(entry.memberName, uniqueMethodNames(classSymbols));
+      // Suggest from real (non-synthetic, non-ctor) method names.
+      const candidates = [
+        ...new Set(
+          cls.methods
+            .filter((m) => m.name !== '<init>' && m.name !== '<clinit>')
+            .map((m) => m.name),
+        ),
+      ];
+      const similar = findSimilarName(entry.memberName, candidates);
       if (similar) suggestion = `Did you mean: ${similar}?`;
       return { errors, warnings, suggestion };
     }
 
-    // Validate the JVM descriptor against the actual signature. The issue
-    // explicitly asks to "check the signature" — stricter than the name-only AW
-    // field check.
+    // Descriptor check: AT and bytecode descriptors are both erased,
+    // fully-qualified JVM form, so this is an exact match. The issue explicitly
+    // asks to "check the signature".
     if (entry.memberDescriptor) {
-      const descriptor = entry.memberDescriptor;
-      const matched = methodSyms.filter((m) => methodDescriptorMatches(m, descriptor).match);
+      const matched = methodSyms.filter((m) => m.desc === entry.memberDescriptor);
       if (matched.length === 0) {
-        const found = methodSyms.map((m) => buildMethodDescriptor(m)).join(', ');
+        const found = methodSyms.map((m) => m.desc).join(', ');
         errors.push(
-          `Method '${entry.memberName}' exists but no overload matches descriptor ${descriptor} (found: ${found})`,
+          `Method '${entry.memberName}' exists but no overload matches descriptor ${entry.memberDescriptor} (found: ${found})`,
         );
         return { errors, warnings, suggestion };
       }
 
-      // Override-narrowing warning (quirk 6.3): an AT only transforms the exact
-      // targeted method; subclass overrides are untouched, risking JVM
-      // link/verify errors if an override narrows visibility. Warn when the
-      // targeted overload is overridable.
-      const classFinal =
-        classSym.isFinal === true || classSym.modifiers?.includes('final') === true;
-      if (matched.some((m) => isOverridable(m, classFinal))) {
+      // Override-narrowing warning (quirk 6.3): an AT transforms only the exact
+      // targeted method; subclass overrides are untouched. Constructors are
+      // excluded — they are never overridable.
+      if (matched.some((m) => isMethodOverridable(m, cls))) {
         warnings.push(
           `Method '${entry.memberName}' is overridable — subclass overrides are not transformed by this AT and may cause JVM link/verify errors`,
         );
@@ -418,13 +394,14 @@ export function validateEntryAgainstSymbols(
       return { errors, warnings, suggestion };
     }
 
-    const fieldSyms = classSymbols.filter(
-      (s) => s.entryType === 'field' && s.symbol === entry.memberName,
-    );
+    const fieldSyms = cls.fields.filter((f) => f.name === entry.memberName);
 
     if (fieldSyms.length === 0) {
       errors.push(`Field '${entry.memberName}' not found in ${entry.className}`);
-      const similar = findSimilarName(entry.memberName, uniqueFieldNames(classSymbols));
+      const similar = findSimilarName(
+        entry.memberName,
+        cls.fields.map((f) => f.name),
+      );
       if (similar) suggestion = `Did you mean: ${similar}?`;
       return { errors, warnings, suggestion };
     }
@@ -434,23 +411,6 @@ export function validateEntryAgainstSymbols(
   }
 
   return { errors, warnings, suggestion };
-}
-
-/**
- * Validate a single access-transformer entry against a synthetic Java source
- * string. Test seam for the existence/signature logic — it lets unit tests
- * exercise validation without a decompiled Minecraft source tree. Production
- * validation reads the class file, extracts symbols once (cached), and delegates
- * to `validateEntryAgainstSymbols` (passing the full entry list so the
- * cross-entry quirk checks also run).
- *
- * @internal
- */
-export function validateEntryAgainstSource(
-  entry: AccessTransformerEntry,
-  source: string,
-): { errors: string[]; warnings: string[]; suggestion?: string } {
-  return validateEntryAgainstSymbols(entry, extractJavaSymbols(source));
 }
 
 /**
@@ -691,14 +651,17 @@ export class AccessTransformerService {
   }
 
   /**
-   * Validate an access transformer against decompiled Minecraft source.
+   * Validate an access transformer against the remapped Minecraft JAR's
+   * bytecode.
    *
    * Default mapping is `'mojmap'` (Forge/NeoForge dev toolchains are
-   * mojmap-only post-1.17). Mirrors the access-widener flow: short-circuit when
-   * the source tree is absent, cache extracted symbols per class file, and
-   * delegate the pure per-entry validation to `validateEntryAgainstSymbols`.
-   * Cross-entry quirk checks (record ctor, inner-class accessibility) and
-   * duplicate/conflict detection run after the per-entry pass.
+   * mojmap-only post-1.17). Requires the version to have been decompiled (which
+   * also produces the remapped JAR this reads). The needed classes — each
+   * targeted class plus its enclosing classes, for the inner-class check — are
+   * resolved from bytecode once (cached), then the pure per-entry validation
+   * runs against `ClassBytecodeMap`. Cross-entry quirk checks (record ctor,
+   * inner-class accessibility) and duplicate/conflict detection run after the
+   * per-entry pass.
    */
   async validateAccessTransformer(
     accessTransformer: AccessTransformer,
@@ -718,28 +681,58 @@ export class AccessTransformerService {
       line: 0,
     };
 
-    // Check if decompiled source exists.
-    if (!cacheManager.hasDecompiledSource(mcVersion, mapping)) {
+    const firstEntry = accessTransformer.entries[0] ?? syntheticEntry;
+
+    // The remapped JAR (bytecode ground truth) is produced during decompilation.
+    // Require it explicitly; guide the user to decompile if it is absent.
+    if (!cacheManager.hasRemappedJar(mcVersion, mapping)) {
       errors.push({
-        entry: accessTransformer.entries[0] ?? syntheticEntry,
-        message: `Minecraft ${mcVersion} source not decompiled. Run decompile_minecraft_version first.`,
+        entry: firstEntry,
+        message: `Minecraft ${mcVersion} (${mapping}) is not available locally. Run decompile_minecraft_version first.`,
       });
       return { isValid: false, errors, warnings };
     }
 
-    const decompiledPath = getDecompiledPath(mcVersion, mapping);
-
-    // Cache extracted symbols per source file for the duration of this call.
-    // Multiple entries targeting the same class parse the file only once.
-    const symbolsCache = new Map<string, JavaSymbol[]>();
-
-    // Validate each entry.
+    // Resolve the set of internal class names to load: each targeted class plus
+    // every enclosing prefix (needed for the inner-class accessibility check).
+    const needed = new Set<string>();
     for (const entry of accessTransformer.entries) {
-      const validation = this.validateEntry(
+      const internal = entry.className.replace(/\./g, '/');
+      needed.add(internal);
+      // `idx > 0` (not `>= 0`): a leading `$` would slice to '' and add an empty
+      // name. Normal `Outer$Inner` nesting has its `$` at a positive index.
+      let idx = internal.lastIndexOf('$');
+      while (idx > 0) {
+        const enclosing = internal.slice(0, idx);
+        needed.add(enclosing);
+        idx = enclosing.lastIndexOf('$');
+      }
+    }
+
+    let classMap: ClassBytecodeMap;
+    try {
+      classMap = await getBytecodeIndexService().getClassBytecode(mcVersion, mapping, [...needed]);
+    } catch (error) {
+      errors.push({
+        entry: firstEntry,
+        message: `Failed to read bytecode for Minecraft ${mcVersion} (${mapping}): ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`,
+      });
+      return { isValid: false, errors, warnings };
+    }
+
+    // JAR-wide class list for same-package "did you mean" suggestions on
+    // class-not-found errors. Central-directory scan only — no bytecode dumped.
+    const suggestionPool = getBytecodeIndexService().listClassNames(mcVersion, mapping);
+
+    // Validate each entry against bytecode.
+    for (const entry of accessTransformer.entries) {
+      const validation = validateEntryAgainstBytecode(
         entry,
-        decompiledPath,
-        symbolsCache,
+        classMap,
         accessTransformer.entries,
+        suggestionPool,
       );
       errors.push(
         ...validation.errors.map((message) => ({
@@ -759,43 +752,6 @@ export class AccessTransformerService {
       errors,
       warnings,
     };
-  }
-
-  /**
-   * Validate a single entry against the decompiled source tree.
-   *
-   * Reads the class file once (symbols cached per path within a single
-   * `validateAccessTransformer` call) and delegates the pure symbol-based
-   * validation to `validateEntryAgainstSymbols`, passing the full entry list so
-   * the cross-entry quirk checks run.
-   */
-  private validateEntry(
-    entry: AccessTransformerEntry,
-    decompiledPath: string,
-    symbolsCache: Map<string, JavaSymbol[]>,
-    allEntries: AccessTransformerEntry[],
-  ): { errors: string[]; warnings: string[]; suggestion?: string } {
-    // JVM inner classes nest with `$`; the source lives in the outer class's
-    // .java file, so resolve the file path from the top-level class segment.
-    const outerClassName = entry.className.split('$')[0];
-    const classPath = join(decompiledPath, `${outerClassName.replace(/\./g, '/')}.java`);
-
-    if (!existsSync(classPath)) {
-      const errors = [`Class not found: ${entry.className}`];
-      let suggestion: string | undefined;
-      const similar = findSimilarClassFile(outerClassName, decompiledPath);
-      if (similar) suggestion = `Did you mean: ${similar}?`;
-      return { errors, warnings: [], suggestion };
-    }
-
-    let symbols = symbolsCache.get(classPath);
-    if (!symbols) {
-      const source = readFileSync(classPath, 'utf8');
-      symbols = extractJavaSymbols(source);
-      symbolsCache.set(classPath, symbols);
-    }
-
-    return validateEntryAgainstSymbols(entry, symbols, allEntries);
   }
 
   /**

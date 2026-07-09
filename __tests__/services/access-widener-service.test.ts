@@ -2,20 +2,25 @@ import { rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import type {
+  BytecodeClass,
+  BytecodeField,
+  BytecodeMethod,
+} from '../../src/java/bytecode-dumper.js';
 import { handleValidateAccessWidener } from '../../src/server/tools.js';
 import {
   getAccessWidenerService,
-  validateEntryAgainstSource,
+  validateEntryAgainstBytecode,
 } from '../../src/services/access-widener-service.js';
 import type { AccessWidenerEntry } from '../../src/types/minecraft.js';
 import { AccessWidenerParseError } from '../../src/utils/errors.js';
 import { TEST_MAPPING, TEST_VERSION } from '../test-constants.js';
 
 /**
- * Build an AccessWidenerEntry with sensible defaults for the regression
- * tests below. These exercise the tree-sitter + descriptor-matching validator
- * via the `validateEntryAgainstSource` test seam (synthetic Java source, no
- * decompiled Minecraft tree required).
+ * Build an AccessWidenerEntry with sensible defaults for the regression tests
+ * below. Validation exercises go through the `validateEntryAgainstBytecode` test
+ * seam, driven by hand-built `BytecodeClass` fixtures — bytecode is the same
+ * ground truth the production path reads from the remapped JAR.
  */
 function makeEntry(
   partial: Partial<AccessWidenerEntry> & { className: string },
@@ -28,12 +33,52 @@ function makeEntry(
   };
 }
 
+// --- Bytecode fixture builders (mirror the ASM dumper's JSON shape) ---------
+
+function bcMethod(name: string, desc: string, flags: string[] = ['public']): BytecodeMethod {
+  return { name, desc, access: 0, flags, signature: null, exceptions: [] };
+}
+
+function bcField(name: string, desc = 'I', flags: string[] = ['public']): BytecodeField {
+  return { name, desc, access: 0, flags, signature: null, value: null };
+}
+
+function bcClass(partial: Partial<BytecodeClass> & { name: string }): BytecodeClass {
+  return {
+    access: 0,
+    flags: ['public'],
+    superName: 'java/lang/Object',
+    interfaces: [],
+    signature: null,
+    isInterface: false,
+    isEnum: false,
+    isRecord: false,
+    isAnnotation: false,
+    isAbstract: false,
+    isFinal: false,
+    isSealed: false,
+    nestHost: null,
+    nestMembers: null,
+    permittedSubclasses: null,
+    recordComponents: null,
+    canonicalConstructor: null,
+    innerClasses: [],
+    fields: [],
+    methods: [],
+    ...partial,
+  };
+}
+
+function mapOf(...classes: BytecodeClass[]): Map<string, BytecodeClass> {
+  return new Map(classes.map((c) => [c.name, c]));
+}
+
 /**
  * Access Widener Service Tests
  *
  * Tests the access widener service's ability to:
  * - Parse Access Widener files
- * - Validate entries against Minecraft source
+ * - Validate entries against Minecraft bytecode
  * - Convert Java descriptors to readable format
  */
 
@@ -97,7 +142,7 @@ accessible field net/minecraft/entity/Entity age I
     expect(awService.descriptorToReadable('(II)V')).toBe('void (int, int)');
   });
 
-  it('should handle validate_access_widener tool', async () => {
+  it('should handle validate_access_widener tool (compact, verdict-first envelope)', async () => {
     const content = `
 accessWidener v2 named
 
@@ -114,15 +159,16 @@ accessible class net/minecraft/entity/Entity
     expect(result.content).toHaveLength(1);
 
     const data = JSON.parse(result.content[0].text);
-    // The single parsed class entry flows into the response verbatim.
-    expect(data.accessWidener.namespace).toBe('named');
-    expect(data.accessWidener.version).toBe(2);
-    expect(data.accessWidener.entryCount).toBe(1);
-    // Validation ran against that entry and returned a well-formed result.
-    expect(data.validation).toBeDefined();
-    expect(typeof data.validation.isValid).toBe('boolean');
-    expect(Array.isArray(data.validation.errors)).toBe(true);
-    expect(Array.isArray(data.validation.warnings)).toBe(true);
+    expect(typeof data.valid).toBe('boolean');
+    expect(data.summary).toContain('1 entry');
+    expect(data.version).toBe(TEST_VERSION);
+    expect(data.mapping).toBe(TEST_MAPPING);
+    expect(data.namespace).toBe('named');
+    // Findings, when present, are one-line directive strings (no nested entry).
+    for (const f of data.errors ?? []) {
+      expect(typeof f.directive).toBe('string');
+      expect(typeof f.line).toBe('number');
+    }
   }, 30000);
 
   it('should handle invalid access widener gracefully', async () => {
@@ -136,12 +182,10 @@ accessible class net/minecraft/entity/Entity
 
     // The garbage content is not a file path and matches no valid access/target
     // type, so the parser rejects every line — zero entries — rather than
-    // producing a bogus parsed-success shape. (No throw: bad lines are skipped,
-    // not fatal.) This is stronger than merely "a response exists."
+    // producing a bogus parsed-success shape. (No throw: bad lines are skipped.)
     const data = JSON.parse(result.content[0].text);
-    expect(data.accessWidener.entryCount).toBe(0);
-    expect(data.accessWidener.namespace).toBe('named');
-    expect(data.accessWidener.version).toBe(1);
+    expect(data.summary).toContain('0 entries');
+    expect(data.namespace).toBe('named');
   });
 
   it('generateAccessWidener produces the exact expected text and round-trips', () => {
@@ -262,19 +306,7 @@ accessible class net/minecraft/entity/Entity
 
   it('descriptorToReadable terminates on malformed input (no infinite loop)', () => {
     const awService = getAccessWidenerService();
-    // Each case previously could hang parseType (a missing ';' rewound `i` to 0,
-    // or an unrecognized char never advanced the cursor). The 2s per-test
-    // timeout pins the regression: any hang fails this test rather than the
-    // suite. All must return a string without throwing.
-    const malformed = [
-      '(Ljava/lang/String', // method, object param with no closing ';'
-      'Lnet/mc/X', // bare object type, no ';'
-      '(X)V', // stray unrecognized char inside params
-      '', // empty string
-      '(', // lone open paren
-      '[Lnet/mc/X', // array of unterminated object type
-      '(II', // params with no closing ')'
-    ];
+    const malformed = ['(Ljava/lang/String', 'Lnet/mc/X', '(X)V', '', '(', '[Lnet/mc/X', '(II'];
     for (const desc of malformed) {
       const out = awService.descriptorToReadable(desc);
       expect(typeof out).toBe('string');
@@ -282,50 +314,29 @@ accessible class net/minecraft/entity/Entity
   }, 2000);
 });
 
-describe('Access Widener Validation (tree-sitter + descriptor matching)', () => {
-  it('does NOT match a method that is only called (not declared)', () => {
-    // `helper` is invoked inside doWork() but never declared. The old regex
-    // `\bhelper\s*\(` matched the call site and reported a false positive.
-    const src = `
-package net.test;
-public class Caller {
-    public void doWork() {
-        helper();
-    }
-}
-`;
+describe('Access Widener Validation (bytecode + descriptor matching)', () => {
+  it('reports a method that is not declared in the class', () => {
+    const cls = bcClass({ name: 'net/test/Caller', methods: [bcMethod('doWork', '()V')] });
     const entry = makeEntry({
       targetType: 'method',
       className: 'net.test.Caller',
       memberName: 'helper',
       memberDescriptor: '()V',
     });
-    const res = validateEntryAgainstSource(entry, src);
+    const res = validateEntryAgainstBytecode(entry, mapOf(cls));
     expect(res.errors.some((e) => e.includes('not found'))).toBe(true);
-    // No spurious suggestion for an undeclared name.
     expect(res.suggestion).toBeUndefined();
   });
 
   it('validates <init> constructor descriptors against the real constructor', () => {
-    // The old code returned `source.includes('public ')` which is ALWAYS true.
-    const src = `
-package net.test;
-public class Thing {
-    private int x;
-    private int y;
-    public Thing(int a, int b) {
-        this.x = a;
-        this.y = b;
-    }
-}
-`;
+    const cls = bcClass({ name: 'net/test/Thing', methods: [bcMethod('<init>', '(II)V')] });
     const matching = makeEntry({
       targetType: 'method',
       className: 'net.test.Thing',
       memberName: '<init>',
       memberDescriptor: '(II)V',
     });
-    expect(validateEntryAgainstSource(matching, src).errors).toEqual([]);
+    expect(validateEntryAgainstBytecode(matching, mapOf(cls)).errors).toEqual([]);
 
     const wrongArity = makeEntry({
       targetType: 'method',
@@ -333,57 +344,47 @@ public class Thing {
       memberName: '<init>',
       memberDescriptor: '(I)V',
     });
-    const res = validateEntryAgainstSource(wrongArity, src);
-    expect(res.errors.some((e) => e.includes('no overload matches'))).toBe(true);
+    expect(
+      validateEntryAgainstBytecode(wrongArity, mapOf(cls)).errors.some((e) =>
+        e.includes('no overload matches'),
+      ),
+    ).toBe(true);
   });
 
   it('reports overload mismatch and lists the found overloads', () => {
-    const src = `
-package net.test;
-public class Over {
-    public void foo(int x) {}
-    public void foo(String s) {}
-}
-`;
-    // foo(int) and foo(String) both take 1 arg; AW targets a 2-arg overload.
+    const cls = bcClass({
+      name: 'net/test/Over',
+      methods: [bcMethod('foo', '(I)V'), bcMethod('foo', '(Ljava/lang/String;)V')],
+    });
     const entry = makeEntry({
       targetType: 'method',
       className: 'net.test.Over',
       memberName: 'foo',
       memberDescriptor: '(II)V',
     });
-    const res = validateEntryAgainstSource(entry, src);
+    const res = validateEntryAgainstBytecode(entry, mapOf(cls));
     const err = res.errors.find((e) => e.includes('no overload matches'));
     expect(err).toBeDefined();
-    // The actual overloads are reported so the user can pick the right one.
     expect(err).toContain('(I)V');
     expect(err).toContain('(Ljava/lang/String;)V');
   });
 
   it('matches a correct overload by descriptor', () => {
-    const src = `
-package net.test;
-public class Over {
-    public void foo(int x) {}
-    public void foo(String s) {}
-}
-`;
+    const cls = bcClass({
+      name: 'net/test/Over',
+      methods: [bcMethod('foo', '(I)V'), bcMethod('foo', '(Ljava/lang/String;)V')],
+    });
     const entry = makeEntry({
       targetType: 'method',
       className: 'net.test.Over',
       memberName: 'foo',
       memberDescriptor: '(Ljava/lang/String;)V',
     });
-    expect(validateEntryAgainstSource(entry, src).errors).toEqual([]);
+    expect(validateEntryAgainstBytecode(entry, mapOf(cls)).errors).toEqual([]);
   });
 
   it('validates field descriptors (mismatch vs match)', () => {
-    const src = `
-package net.test;
-public class Person {
-    public int age;
-}
-`;
+    const cls = bcClass({ name: 'net/test/Person', fields: [bcField('age', 'I')] });
     const mismatch = makeEntry({
       targetType: 'field',
       className: 'net.test.Person',
@@ -391,7 +392,7 @@ public class Person {
       memberDescriptor: 'Ljava/lang/String;',
     });
     expect(
-      validateEntryAgainstSource(mismatch, src).errors.some((e) =>
+      validateEntryAgainstBytecode(mismatch, mapOf(cls)).errors.some((e) =>
         e.includes('descriptor mismatch'),
       ),
     ).toBe(true);
@@ -402,20 +403,17 @@ public class Person {
       memberName: 'age',
       memberDescriptor: 'I',
     });
-    expect(validateEntryAgainstSource(ok, src).errors).toEqual([]);
+    expect(validateEntryAgainstBytecode(ok, mapOf(cls)).errors).toEqual([]);
   });
 
-  it('warns on mutable for an already-non-final (incl. generic) field', () => {
-    // The old `(?!final)\w+` regex silently missed `List<String> items`
-    // because `\w+` stopped at the `<`.
-    const src = `
-package net.test;
-import java.util.List;
-public class Holder {
-    public List<String> items;
-    public int counter;
-}
-`;
+  it('warns on mutable for an already-non-final field', () => {
+    const cls = bcClass({
+      name: 'net/test/Holder',
+      fields: [
+        bcField('items', 'Ljava/util/List;', ['public']),
+        bcField('counter', 'I', ['public']),
+      ],
+    });
     const items = makeEntry({
       accessType: 'mutable',
       targetType: 'field',
@@ -423,31 +421,16 @@ public class Holder {
       memberName: 'items',
       memberDescriptor: 'Ljava/util/List;',
     });
-    const itemsRes = validateEntryAgainstSource(items, src);
+    const itemsRes = validateEntryAgainstBytecode(items, mapOf(cls));
     expect(itemsRes.errors).toEqual([]);
     expect(itemsRes.warnings.some((w) => w.includes('already be mutable'))).toBe(true);
-
-    const counter = makeEntry({
-      accessType: 'mutable',
-      targetType: 'field',
-      className: 'net.test.Holder',
-      memberName: 'counter',
-      memberDescriptor: 'I',
-    });
-    expect(
-      validateEntryAgainstSource(counter, src).warnings.some((w) =>
-        w.includes('already be mutable'),
-      ),
-    ).toBe(true);
   });
 
   it('does not warn on mutable for a final field', () => {
-    const src = `
-package net.test;
-public class Fixed {
-    public final int locked = 1;
-}
-`;
+    const cls = bcClass({
+      name: 'net/test/Fixed',
+      fields: [bcField('locked', 'I', ['public', 'final'])],
+    });
     const entry = makeEntry({
       accessType: 'mutable',
       targetType: 'field',
@@ -455,51 +438,39 @@ public class Fixed {
       memberName: 'locked',
       memberDescriptor: 'I',
     });
-    const res = validateEntryAgainstSource(entry, src);
+    const res = validateEntryAgainstBytecode(entry, mapOf(cls));
     expect(res.errors).toEqual([]);
     expect(res.warnings.some((w) => w.includes('already be mutable'))).toBe(false);
   });
 
   it('warns on extendable for a final class but not for a non-final one', () => {
-    const finalSrc = `
-package net.test;
-public final class Locked {}
-`;
+    const finalCls = bcClass({ name: 'net/test/Locked', isFinal: true });
     const finalEntry = makeEntry({
       accessType: 'extendable',
       targetType: 'class',
       className: 'net.test.Locked',
     });
     expect(
-      validateEntryAgainstSource(finalEntry, finalSrc).warnings.some((w) => w.includes('is final')),
+      validateEntryAgainstBytecode(finalEntry, mapOf(finalCls)).warnings.some((w) =>
+        w.includes('is final'),
+      ),
     ).toBe(true);
 
-    // The old `source.includes('final class')` substring matched the inner
-    // final class AND the comment, producing a false warning for `Open`.
-    const trickySrc = `
-package net.test;
-// this comment mentions final class on purpose
-public class Open {
-    public static final class Inner {}
-}
-`;
+    const openCls = bcClass({ name: 'net/test/Open', isFinal: false });
     const openEntry = makeEntry({
       accessType: 'extendable',
       targetType: 'class',
       className: 'net.test.Open',
     });
     expect(
-      validateEntryAgainstSource(openEntry, trickySrc).warnings.some((w) => w.includes('is final')),
+      validateEntryAgainstBytecode(openEntry, mapOf(openCls)).warnings.some((w) =>
+        w.includes('is final'),
+      ),
     ).toBe(false);
   });
 
   it('suggests a similar field name when the target is missing', () => {
-    const src = `
-package net.test;
-public class Box {
-    public int counter;
-}
-`;
+    const cls = bcClass({ name: 'net/test/Box', fields: [bcField('counter', 'I')] });
     const entry = makeEntry({
       accessType: 'mutable',
       targetType: 'field',
@@ -507,28 +478,58 @@ public class Box {
       memberName: 'countre',
       memberDescriptor: 'I',
     });
-    const res = validateEntryAgainstSource(entry, src);
+    const res = validateEntryAgainstBytecode(entry, mapOf(cls));
     expect(res.errors.some((e) => e.includes('not found'))).toBe(true);
     expect(res.suggestion).toContain('counter');
   });
 
-  it('warns (does not error) on <clinit> static initializers', () => {
-    const src = `
-package net.test;
-public class WithStatic {
-    static {
-        System.out.println("init");
-    }
-}
-`;
+  it('finds a <clinit> static initializer present in bytecode (no false "not found")', () => {
+    // Bytecode contains <clinit> when the class has a static initializer, so —
+    // unlike the old decompiled-source path — it validates without error.
+    const cls = bcClass({
+      name: 'net/test/WithStatic',
+      methods: [bcMethod('<clinit>', '()V', ['static'])],
+    });
     const entry = makeEntry({
       targetType: 'method',
       className: 'net.test.WithStatic',
       memberName: '<clinit>',
       memberDescriptor: '()V',
     });
-    const res = validateEntryAgainstSource(entry, src);
+    const res = validateEntryAgainstBytecode(entry, mapOf(cls));
     expect(res.errors).toEqual([]);
-    expect(res.warnings.some((w) => w.includes('<clinit>'))).toBe(true);
+  });
+
+  it('finds an implicit record component accessor (issue #12 regression)', () => {
+    // The record accessor `value()` is compiler-generated and absent from
+    // decompiled source, but present in bytecode — so widening it must not be a
+    // false "not found".
+    const rec = bcClass({
+      name: 'net/mc/ExactMatcher',
+      isRecord: true,
+      recordComponents: [{ name: 'value', descriptor: 'Ljava/lang/String;', signature: null }],
+      canonicalConstructor: '(Ljava/lang/String;)V',
+      methods: [
+        bcMethod('<init>', '(Ljava/lang/String;)V', []),
+        bcMethod('value', '()Ljava/lang/String;'),
+      ],
+    });
+    const entry = makeEntry({
+      accessType: 'accessible',
+      targetType: 'method',
+      className: 'net.mc.ExactMatcher',
+      memberName: 'value',
+      memberDescriptor: '()Ljava/lang/String;',
+    });
+    expect(validateEntryAgainstBytecode(entry, mapOf(rec)).errors).toEqual([]);
+  });
+
+  it('errors on a class absent from the JAR with a suggestion', () => {
+    const res = validateEntryAgainstBytecode(
+      makeEntry({ targetType: 'class', className: 'net.test.Ghost' }),
+      mapOf(bcClass({ name: 'net/test/Ghosts' })),
+    );
+    expect(res.errors.some((e) => e.includes('Class not found'))).toBe(true);
+    expect(res.suggestion).toContain('Ghosts');
   });
 });

@@ -30,7 +30,7 @@ export class MappingIOWrapper {
     proguardFile: string,
     intermediaryFile: string,
     outputFile: string,
-    options: MappingIOOptions = {}
+    options: MappingIOOptions = {},
   ): Promise<string> {
     const jarPath = getJavaResourceDownloader().getMappingIOCliJar();
 
@@ -67,7 +67,7 @@ export class MappingIOWrapper {
     } catch (error) {
       logger.error('MappingIO conversion failed', error);
       throw new Error(
-        `MappingIO conversion failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+        `MappingIO conversion failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
     }
   }

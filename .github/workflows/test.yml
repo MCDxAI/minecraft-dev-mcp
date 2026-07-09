@@ -8,6 +8,7 @@ on:
       - '__tests__/**'
       - '*.ts'
       - '*.js'
+      - 'biome.json'
       - 'package.json'
       - 'package-lock.json'
       - 'tsconfig.json'
@@ -20,6 +21,7 @@ on:
       - '__tests__/**'
       - '*.ts'
       - '*.js'
+      - 'biome.json'
       - 'package.json'
       - 'package-lock.json'
       - 'tsconfig.json'
@@ -74,6 +76,9 @@ jobs:
 
     - name: Build
       run: npm run build
+
+    - name: Run linter
+      run: npm run lint
 
     # Isolate the heavy decompile pipeline into its own step so it is not racing
     # the vitest test timeout. Idempotent: a fast no-op when the cache above was

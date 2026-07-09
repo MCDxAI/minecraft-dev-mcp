@@ -8,6 +8,7 @@ import { ClassNotFoundError, DecompilationError } from '../utils/errors.js';
 import { extractSourcesJar, inspectJar } from '../utils/jar-inspector.js';
 import { logger } from '../utils/logger.js';
 import { classNameToPath, getDecompiledPath } from '../utils/paths.js';
+import { getBytecodeIndexService } from './bytecode-index-service.js';
 import { getRemapService } from './remap-service.js';
 import { getSearchIndexService } from './search-index-service.js';
 
@@ -161,6 +162,7 @@ export class DecompileService {
    *   - decompiled source directory
    *   - decompile_jobs row (so getOrCreateJob doesn't short-circuit)
    *   - FTS5 search index entries (so stale results don't surface)
+   *   - the AT validator's bytecode sidecar cache (rebuilt from the new JAR)
    *
    * The next decompile call will rebuild from scratch. Indexing must be
    * triggered explicitly via index_minecraft_version after re-decompile.
@@ -175,6 +177,10 @@ export class DecompileService {
     getDatabase().deleteJob(version, mapping);
     logger.info(`Force: clearing FTS5 index entries for ${version}/${mapping}`);
     getSearchIndexService().clearIndex(version, mapping);
+    // The remapped JAR is regenerated on the next decompile (new size/mtime, so
+    // the cache would self-invalidate) — clear the sidecar eagerly for tidiness.
+    logger.info(`Force: clearing bytecode cache for ${version}/${mapping}`);
+    getBytecodeIndexService().clearCache(version, mapping);
   }
 
   /**

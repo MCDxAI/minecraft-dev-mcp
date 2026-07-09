@@ -1,5 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { type McpTestSession, createMcpSession, extractFirstText } from '../../helpers/mcp-stdio.js';
+import {
+  type McpTestSession,
+  createMcpSession,
+  extractFirstText,
+} from '../../helpers/mcp-stdio.js';
 import { TEST_MAPPING, TEST_VERSION, UNOBFUSCATED_TEST_VERSION } from '../../test-constants.js';
 
 /**

@@ -2,7 +2,40 @@
 
 **Tracking:** GitHub issue [#12 — Support for access transformers](https://github.com/MCDxAI/minecraft-dev-mcp/issues/12)
 **Author:** rlnt (Relentless) · **Triage:** labeled `enhancement`, assigned GhostTypes · **Opened:** 2026-06-29
-**Status:** Research complete — pending implementation.
+**Status:** Implemented (v1.2.2). Revised to bytecode-based validation — see the update note below.
+
+---
+
+## 0. Update — bytecode ground truth (issue #12 follow-up)
+
+The reporter tested v1.2.4 and hit **false positives**: implicit record members —
+canonical constructors and component accessors (`value()`, `name()`, …) — were
+reported "not found", because they are compiler-generated and **do not appear in
+decompiled `.java`**. They forced a fallback to `javap` on the remapped JAR.
+
+The validator therefore now correlates entries against **bytecode**, not
+decompiled source. It reads the remapped JAR through the bundled ASM
+`bytecode-dumper` (`src/java/bytecode-dumper.ts`, `src/services/bytecode-index-service.ts`),
+so it sees exactly what the AT is applied to at load time — the same facts
+`javap` shows — with true access flags and erased descriptors. Consequences:
+
+- **Member existence / signature** is an exact bytecode lookup (implicit record
+  members included). No more source-omission false positives.
+- **Record canonical-constructor widening (§6.2)** is downgraded from a
+  guaranteed "the game will crash at runtime" **error-grade** claim to an
+  **informational note**: widening the record class alone is fine for reading
+  components/codecs; a widened canonical ctor is only needed if you *instantiate*
+  the record. It fires only when bytecode shows the ctor is actually narrower
+  than the class's new access and no file directive widens it.
+- **Constructors are never "overridable"** — the override-narrowing warning (§6.3)
+  now excludes `<init>`/`<clinit>` (a prior false positive on `AnyOfCondition`).
+- Needs only the **remapped JAR** (produced by `decompile_minecraft_version`);
+  results are cached in a `remapped/{version}-{mapping}.bytecode.json` sidecar
+  keyed by the JAR's size+mtime signature, so the cache is always fresh and
+  never re-dumps the whole JAR.
+
+Sections below marked as tree-sitter/decompiled-source describe the original v1
+design and are superseded by this note.
 
 ---
 

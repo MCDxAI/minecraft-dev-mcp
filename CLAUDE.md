@@ -329,7 +329,7 @@ Deterministic central-directory scan: any `.class` entry → decompile via VineF
 8. **`compare_versions`** - Compare classes/registries between versions
 9. **`analyze_mixin`** - Analyze and validate Mixin code
 10. **`validate_access_widener`** - Validate access widener files
-10a. **`validate_access_transformer`** - Validate Forge/NeoForge access transformer files (parses `.cfg`, checks signatures, detects record canonical-constructor crashes, inner-class accessibility, and conflicting modifiers; mojmap-only)
+10a. **`validate_access_transformer`** - Validate Forge/NeoForge access transformer files (parses `.cfg`, checks signatures, flags record canonical-constructor widening, inner-class accessibility, and conflicting modifiers; mojmap-only). Validates against the **remapped JAR's bytecode** (via the bundled ASM `bytecode-dumper`), not decompiled `.java` — decompiled source omits compiler-generated record members (canonical constructors, component accessors), so a source-based check false-flags them as missing (issue #12). Bytecode carries every member with its true access flags and erased descriptors (the same facts `javap` shows). Only needs the remapped JAR, which `decompile_minecraft_version` produces; per-class results are cached in a `remapped/{version}-{mapping}.bytecode.json` sidecar keyed by JAR signature.
 11. **`compare_versions_detailed`** - AST-level version comparison
 12. **`index_minecraft_version`** - Create full-text search index
 13. **`search_indexed`** - Fast FTS5 search on indexed versions

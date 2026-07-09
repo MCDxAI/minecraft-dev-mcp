@@ -1,0 +1,13 @@
+# Enforce LF line endings for text files on every platform. Without this, Windows
+# checkouts convert to CRLF (via core.autocrlf), which the Biome formatter flags
+# as errors even though the committed blobs are LF.
+* text=auto eol=lf
+
+# Binary assets — never line-ending normalize.
+*.jar binary
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.gz binary
+*.zip binary

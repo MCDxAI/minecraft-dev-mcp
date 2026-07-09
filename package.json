@@ -1,6 +1,6 @@
 {
   "name": "@mcdxai/minecraft-dev-mcp",
-  "version": "1.2.4",
+  "version": "1.2.5",
   "description": "MCP server and CLI for Minecraft mod development - decompile, remap, and explore Minecraft source code",
   "type": "module",
   "main": "./dist/index.js",
@@ -43,14 +43,7 @@
     "lint:fix": "biome check --write .",
     "clean": "rimraf dist"
   },
-  "keywords": [
-    "minecraft",
-    "fabric",
-    "mod-development",
-    "mcp",
-    "decompiler",
-    "mappings"
-  ],
+  "keywords": ["minecraft", "fabric", "mod-development", "mcp", "decompiler", "mappings"],
   "author": "GhostTypes",
   "license": "MIT",
   "repository": {
