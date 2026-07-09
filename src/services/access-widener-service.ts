@@ -51,6 +51,23 @@ function simpleClassName(internal: string): string {
   return dollar >= 0 ? tail.slice(dollar + 1) : tail;
 }
 
+/** Package (path portion) of an internal class name, or '' for the default package. */
+function packageOf(internal: string): string {
+  const slash = internal.lastIndexOf('/');
+  return slash >= 0 ? internal.slice(0, slash) : '';
+}
+
+/**
+ * Pick the best "did you mean" class name for a missing target, drawn from
+ * `pool` (JAR-wide internal names) restricted to the target's own package so
+ * suggestions stay relevant and bounded.
+ */
+function suggestClassName(targetInternal: string, pool: string[]): string | null {
+  const pkg = packageOf(targetInternal);
+  const samePackage = pool.filter((n) => packageOf(n) === pkg).map(simpleClassName);
+  return findSimilarName(simpleClassName(targetInternal), samePackage);
+}
+
 /**
  * Render a parsed entry back to its one-line AW directive text (e.g.
  * `accessible method net/minecraft/Foo tick ()V`). Used to keep tool output
@@ -77,6 +94,7 @@ export function accessWidenerEntryToString(entry: AccessWidenerEntry): string {
 export function validateEntryAgainstBytecode(
   entry: AccessWidenerEntry,
   classMap: ClassBytecodeMap,
+  classSuggestionPool?: string[],
 ): { errors: string[]; warnings: string[]; suggestion?: string } {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -86,10 +104,10 @@ export function validateEntryAgainstBytecode(
   const cls = classMap.get(internal);
   if (!cls) {
     errors.push(`Class not found: ${entry.className}`);
-    const similar = findSimilarName(
-      simpleClassName(internal),
-      [...classMap.keys()].map(simpleClassName),
-    );
+    // Suggest from the JAR-wide class list (same package) when the caller
+    // supplies it; fall back to the loaded classMap for pure/unit callers.
+    const pool = classSuggestionPool ?? [...classMap.keys()];
+    const similar = suggestClassName(internal, pool);
     if (similar) suggestion = `Did you mean a class named: ${similar}?`;
     return { errors, warnings, suggestion };
   }
@@ -355,8 +373,12 @@ export class AccessWidenerService {
       return { isValid: false, errors, warnings };
     }
 
+    // JAR-wide class list for same-package "did you mean" suggestions on
+    // class-not-found errors. Central-directory scan only — no bytecode dumped.
+    const suggestionPool = getBytecodeIndexService().listClassNames(mcVersion, mapping);
+
     for (const entry of accessWidener.entries) {
-      const validation = validateEntryAgainstBytecode(entry, classMap);
+      const validation = validateEntryAgainstBytecode(entry, classMap, suggestionPool);
       errors.push(
         ...validation.errors.map((message) => ({
           entry,

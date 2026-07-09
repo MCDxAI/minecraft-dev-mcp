@@ -190,6 +190,24 @@ function simpleClassName(internal: string): string {
   return dollar >= 0 ? tail.slice(dollar + 1) : tail;
 }
 
+/** Package (path portion) of an internal class name, or '' for the default package. */
+function packageOf(internal: string): string {
+  const slash = internal.lastIndexOf('/');
+  return slash >= 0 ? internal.slice(0, slash) : '';
+}
+
+/**
+ * Pick the best "did you mean" class name for a missing target. Draws from
+ * `pool` (JAR-wide internal names) restricted to the SAME package as the target,
+ * so suggestions stay relevant and bounded — a typo'd package yields nothing
+ * rather than a misleading match three packages away.
+ */
+function suggestClassName(targetInternal: string, pool: string[]): string | null {
+  const pkg = packageOf(targetInternal);
+  const samePackage = pool.filter((n) => packageOf(n) === pkg).map(simpleClassName);
+  return findSimilarName(simpleClassName(targetInternal), samePackage);
+}
+
 /**
  * Is a method overridable (subject to the override-narrowing gotcha, quirk 6.3)?
  * Constructors and static initializers are NOT overridable — a constructor is
@@ -235,6 +253,7 @@ export function validateEntryAgainstBytecode(
   entry: AccessTransformerEntry,
   classMap: ClassBytecodeMap,
   allEntries?: AccessTransformerEntry[],
+  classSuggestionPool?: string[],
 ): { errors: string[]; warnings: string[]; suggestion?: string } {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -247,10 +266,10 @@ export function validateEntryAgainstBytecode(
   // files, so `Outer$NonExistent` simply has no entry and is caught here.
   if (!cls) {
     errors.push(`Class '${entry.className}' not found`);
-    const similar = findSimilarName(
-      simpleClassName(internal),
-      [...classMap.keys()].map(simpleClassName),
-    );
+    // Suggest from the JAR-wide class list (same package) when the caller
+    // supplies it; fall back to the loaded classMap for pure/unit callers.
+    const pool = classSuggestionPool ?? [...classMap.keys()];
+    const similar = suggestClassName(internal, pool);
     if (similar) suggestion = `Did you mean a class named: ${similar}?`;
     return { errors, warnings, suggestion };
   }
@@ -680,8 +699,10 @@ export class AccessTransformerService {
     for (const entry of accessTransformer.entries) {
       const internal = entry.className.replace(/\./g, '/');
       needed.add(internal);
+      // `idx > 0` (not `>= 0`): a leading `$` would slice to '' and add an empty
+      // name. Normal `Outer$Inner` nesting has its `$` at a positive index.
       let idx = internal.lastIndexOf('$');
-      while (idx >= 0) {
+      while (idx > 0) {
         const enclosing = internal.slice(0, idx);
         needed.add(enclosing);
         idx = enclosing.lastIndexOf('$');
@@ -701,9 +722,18 @@ export class AccessTransformerService {
       return { isValid: false, errors, warnings };
     }
 
+    // JAR-wide class list for same-package "did you mean" suggestions on
+    // class-not-found errors. Central-directory scan only — no bytecode dumped.
+    const suggestionPool = getBytecodeIndexService().listClassNames(mcVersion, mapping);
+
     // Validate each entry against bytecode.
     for (const entry of accessTransformer.entries) {
-      const validation = validateEntryAgainstBytecode(entry, classMap, accessTransformer.entries);
+      const validation = validateEntryAgainstBytecode(
+        entry,
+        classMap,
+        accessTransformer.entries,
+        suggestionPool,
+      );
       errors.push(
         ...validation.errors.map((message) => ({
           entry,

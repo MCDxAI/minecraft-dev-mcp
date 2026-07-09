@@ -409,6 +409,30 @@ describe('Access Transformer Validation (bytecode + descriptor matching)', () =>
     expect(res.errors.some((e) => e.includes("Class 'net.test.Ghost' not found"))).toBe(true);
   });
 
+  it('suggests a similar class name from the JAR-wide pool (same package)', () => {
+    // The loaded classMap only holds the (missing) target; the suggestion must
+    // come from the wider JAR pool, not just the classes this file referenced.
+    const res = validateEntryAgainstBytecode(
+      makeEntry({ memberType: 'class', className: 'net.test.Blok' }),
+      mapOf(bcClass({ name: 'net/test/Unrelated' })), // classMap has no good candidate
+      undefined,
+      ['net/test/Block', 'net/test/Blocks', 'net/other/Blok'],
+    );
+    expect(res.suggestion).toContain('Block');
+  });
+
+  it('does not suggest a similar class from a different package', () => {
+    // `Bloc` is edit-distance 1 from `Block`, but only in a different package —
+    // package-scoped suggestions must not cross package boundaries.
+    const res = validateEntryAgainstBytecode(
+      makeEntry({ memberType: 'class', className: 'net.test.Bloc' }),
+      mapOf(bcClass({ name: 'net/test/Unrelated' })),
+      undefined,
+      ['net/other/Block', 'net/deep/nested/Block'],
+    );
+    expect(res.suggestion).toBeUndefined();
+  });
+
   it('warns on override-narrowing for an overridable method but not a final one', () => {
     const base = bcClass({
       name: 'net/test/Base',

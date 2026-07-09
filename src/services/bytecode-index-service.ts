@@ -82,7 +82,10 @@ export class BytecodeIndexService {
     let cache = this.loadCache(cachePath, signature);
 
     const wanted = [...new Set(internalNames)];
-    const missing = wanted.filter((n) => !(n in cache.classes));
+    // Object.hasOwn (not `n in`) so an internal name colliding with an
+    // Object.prototype key (`toString`, `constructor`, …) can't be mistaken for
+    // an already-cached entry and silently skipped.
+    const missing = wanted.filter((n) => !Object.hasOwn(cache.classes, n));
 
     if (missing.length > 0) {
       const dumped = await this.dumpClasses(jarPath, missing);
@@ -104,6 +107,23 @@ export class BytecodeIndexService {
       if (entry) result.set(name, entry);
     }
     return result;
+  }
+
+  /**
+   * List every class's internal name in the remapped JAR via a central-directory
+   * scan (no bytecode dumped). Used to build package-scoped "did you mean"
+   * suggestion pools for class-not-found errors. Returns `[]` when the JAR is
+   * absent — suggestions are a nicety, never a hard dependency.
+   */
+  listClassNames(version: string, mapping: MappingType): string[] {
+    const jarPath = getRemappedJarPath(version, mapping);
+    if (!existsSync(jarPath)) return [];
+    const names: string[] = [];
+    for (const entry of new AdmZip(jarPath).getEntries()) {
+      const n = entry.entryName;
+      if (n.endsWith('.class')) names.push(n.slice(0, -'.class'.length));
+    }
+    return names;
   }
 
   /** Delete the sidecar cache for a (version, mapping). Used by force-clear paths. */
@@ -143,12 +163,19 @@ export class BytecodeIndexService {
 
   /** Persist the cache atomically (write-temp + rename) so a crash cannot truncate it. */
   private saveCache(cachePath: string, cache: BytecodeCacheFile): void {
+    const tmp = `${cachePath}.${process.pid}.tmp`;
     try {
-      const tmp = `${cachePath}.${process.pid}.tmp`;
       writeFileSync(tmp, JSON.stringify(cache), 'utf8');
       renameSync(tmp, cachePath);
     } catch (error) {
       // A failed cache write is non-fatal — validation still works, just uncached.
+      // Clean up the temp file if the rename never happened, so a failed write
+      // doesn't leave an orphan next to the cache.
+      try {
+        if (existsSync(tmp)) unlinkSync(tmp);
+      } catch {
+        // best-effort
+      }
       logger.debug(`Failed to persist bytecode cache ${cachePath}: ${String(error)}`);
     }
   }
