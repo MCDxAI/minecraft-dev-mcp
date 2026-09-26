@@ -197,7 +197,7 @@ export class DecompileService {
    * a rebuilt patched JAR refreshes it (and the new size/mtime invalidates the
    * bytecode sidecar automatically).
    */
-  private registerAsRemappedJar(jarPath: string, version: string, mapping: MappingType): void {
+  registerAsRemappedJar(jarPath: string, version: string, mapping: MappingType): void {
     const dest = getRemappedJarPath(version, mapping);
     if (resolve(jarPath) === resolve(dest)) return;
     try {

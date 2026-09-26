@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { z } from 'zod';
 import { getCacheManager } from '../cache/cache-manager.js';
+import { getForgeMaven } from '../downloaders/forge-maven.js';
 import {
   accessTransformerEntryToString,
   getAccessTransformerService,
@@ -13,6 +14,7 @@ import {
 import { getAstDiffService } from '../services/ast-diff-service.js';
 import { getDecompileService } from '../services/decompile-service.js';
 import { getDocumentationService } from '../services/documentation-service.js';
+import { getForgeSourceService } from '../services/forge-source-service.js';
 import { getMappingService } from '../services/mapping-service.js';
 import { getMixinService } from '../services/mixin-service.js';
 import { getModAnalyzerService } from '../services/mod-analyzer-service.js';
@@ -29,10 +31,11 @@ import type {
   MappingType,
   MixinClass,
 } from '../types/minecraft.js';
+import { ClassNotFoundError } from '../utils/errors.js';
 import { extractJavaSymbols } from '../utils/java-symbols.js';
 import { logger } from '../utils/logger.js';
 import { normalizePath } from '../utils/path-converter.js';
-import { getDecompiledPath } from '../utils/paths.js';
+import { classNameToPath, getDecompiledPath } from '../utils/paths.js';
 
 // Tool input schemas
 const GetMinecraftSourceSchema = z.object({
@@ -274,6 +277,90 @@ const SearchModIndexedSchema = z.object({
     .optional()
     .describe('Entry types to search (omit for all types)'),
   limit: z.number().optional().describe('Maximum results (default: 100)'),
+});
+
+// Phase 4 (Forge/NeoForge patched source) Tool Schemas
+
+const ForgeTargetFields = {
+  mcVersion: z.string().describe('Minecraft version (e.g., "1.20.1")'),
+  loaderVersion: z
+    .string()
+    .optional()
+    .describe(
+      'Loader version, e.g. "47.3.0" (forge) or "21.1.72" (neoforge). Defaults to the recommended build (forge) or the latest stable (neoforge).',
+    ),
+  loader: z
+    .enum(['forge', 'neoforge'])
+    .optional()
+    .describe(
+      'Loader (default: forge). NeoForge 1.20.1 was published under a legacy artifact — use forge for 1.20.1.',
+    ),
+};
+
+const ListForgeVersionsSchema = z.object({
+  mcVersion: z.string().describe('Minecraft version (e.g., "1.20.1")'),
+  loader: z.enum(['forge', 'neoforge']).optional().describe('Loader (default: forge)'),
+  forceRefresh: z
+    .boolean()
+    .optional()
+    .describe(
+      'Bypass the cached version index and re-fetch from the loader Maven (default: false)',
+    ),
+});
+
+const DecompileForgeMinecraftVersionSchema = z.object({
+  ...ForgeTargetFields,
+  force: z
+    .boolean()
+    .optional()
+    .describe('Rebuild the decompiled tree even if cached (default: false)'),
+});
+
+const GetForgeSourceSchema = z.object({
+  ...ForgeTargetFields,
+  className: z
+    .string()
+    .describe(
+      'Fully qualified class name (e.g., "net.minecraftforge.event.entity.living.LivingHurtEvent" or "net.minecraft.world.entity.Entity")',
+    ),
+  startLine: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe('Starting line number (1-indexed, inclusive). If omitted, starts from line 1.'),
+  endLine: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe('Ending line number (1-indexed, inclusive). If omitted, returns until end of file.'),
+  maxLines: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe('Maximum number of lines to return. Applied after startLine/endLine filtering.'),
+});
+
+const SearchForgeCodeSchema = z.object({
+  ...ForgeTargetFields,
+  query: z.string().describe('Search query (regex pattern or literal string)'),
+  searchType: z
+    .enum(['class', 'method', 'field', 'content', 'all'])
+    .optional()
+    .describe('Type of search (default: all)'),
+  limit: z.number().optional().describe('Maximum number of results (default: 50)'),
+});
+
+const CompareVanillaVsForgeSchema = z.object({
+  ...ForgeTargetFields,
+  className: z
+    .string()
+    .optional()
+    .describe(
+      'Single class to diff in detail (AST-level; narrows the comparison to the class package). Omit to list class-level additions/removals.',
+    ),
 });
 
 // Tool definitions
@@ -854,9 +941,326 @@ export const tools = [
       required: ['query', 'modId', 'modVersion', 'mapping'],
     },
   },
+  {
+    name: 'list_forge_versions',
+    description:
+      'List available Forge or NeoForge loader versions for a Minecraft version, from the loaders’ Maven repositories. Each entry includes `fullVersion` — the opaque cache key (`<mc>-<loader>-<loaderVersion>`, e.g. `1.21.1-neoforge-21.1.72`) that decompile_forge_minecraft_version and every patched-source tool accept.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        mcVersion: {
+          type: 'string',
+          description: 'Minecraft version (e.g., "1.20.1")',
+        },
+        loader: {
+          type: 'string',
+          enum: ['forge', 'neoforge'],
+          description:
+            'Loader (default: forge). NeoForge 1.20.1 was published under a legacy artifact — use forge for 1.20.1.',
+        },
+        forceRefresh: {
+          type: 'boolean',
+          description:
+            'Bypass the cached version index and re-fetch from the loader Maven (default: false)',
+        },
+      },
+      required: ['mcVersion'],
+    },
+  },
+  {
+    name: 'decompile_forge_minecraft_version',
+    description:
+      'Build the Forge/NeoForge **patched** Minecraft source tree (mojmap, loader sources included) — exactly what a mod developer sees in their IDE. Runs the NeoFormRuntime userdev pipeline on first use (downloads Minecraft, decompiles and recompiles; needs Java 21 and can take several minutes), then caches under the version key. Afterwards get_forge_source, search_forge_code, compare_vanilla_vs_forge AND the vanilla tools (get_minecraft_source, search_minecraft_code, index_minecraft_version, search_indexed, compare_versions, validate_access_transformer) all work on the returned `cacheKey`. Note: for MC 1.20.1 use loader "forge" (early NeoForge builds are not published as net.neoforged:neoforge).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        mcVersion: {
+          type: 'string',
+          description: 'Minecraft version (e.g., "1.21.1")',
+        },
+        loaderVersion: {
+          type: 'string',
+          description:
+            'Loader version, e.g. "47.3.0" (forge) or "21.1.72" (neoforge). Defaults to the recommended build (forge) or the latest stable (neoforge).',
+        },
+        loader: {
+          type: 'string',
+          enum: ['forge', 'neoforge'],
+          description: 'Loader (default: forge)',
+        },
+        force: {
+          type: 'boolean',
+          description: 'Rebuild the decompiled tree even if cached (default: false)',
+        },
+      },
+      required: ['mcVersion'],
+    },
+  },
+  {
+    name: 'get_forge_source',
+    description:
+      'Get source code of a loader class (net.minecraftforge.* / net.neoforged.*) from the Forge/NeoForge patched Minecraft tree — events, registries, FML internals. First call automatically builds the patched tree via decompile_forge_minecraft_version if needed. Same tree as get_forge_minecraft_source (which is aimed at patched vanilla classes).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        mcVersion: {
+          type: 'string',
+          description: 'Minecraft version (e.g., "1.21.1")',
+        },
+        loaderVersion: {
+          type: 'string',
+          description:
+            'Loader version, e.g. "47.3.0" (forge) or "21.1.72" (neoforge). Defaults to the recommended build (forge) or the latest stable (neoforge).',
+        },
+        loader: {
+          type: 'string',
+          enum: ['forge', 'neoforge'],
+          description: 'Loader (default: forge)',
+        },
+        className: {
+          type: 'string',
+          description:
+            'Fully qualified class name (e.g., "net.minecraftforge.event.entity.living.LivingHurtEvent")',
+        },
+        startLine: {
+          type: 'number',
+          description:
+            'Starting line number (1-indexed, inclusive). If omitted, starts from line 1.',
+        },
+        endLine: {
+          type: 'number',
+          description:
+            'Ending line number (1-indexed, inclusive). If omitted, returns until end of file.',
+        },
+        maxLines: {
+          type: 'number',
+          description:
+            'Maximum number of lines to return. Applied after startLine/endLine filtering.',
+        },
+      },
+      required: ['mcVersion', 'className'],
+    },
+  },
+  {
+    name: 'get_forge_minecraft_source',
+    description:
+      'Get source code of a Minecraft class as modified by Forge/NeoForge patches (event hooks, injections, extensions) — e.g. net.minecraft.world.entity.Entity with its Forge event calls. Same patched tree as get_forge_source; built automatically on first use.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        mcVersion: {
+          type: 'string',
+          description: 'Minecraft version (e.g., "1.21.1")',
+        },
+        loaderVersion: {
+          type: 'string',
+          description:
+            'Loader version, e.g. "47.3.0" (forge) or "21.1.72" (neoforge). Defaults to the recommended build (forge) or the latest stable (neoforge).',
+        },
+        loader: {
+          type: 'string',
+          enum: ['forge', 'neoforge'],
+          description: 'Loader (default: forge)',
+        },
+        className: {
+          type: 'string',
+          description: 'Fully qualified class name (e.g., "net.minecraft.world.entity.Entity")',
+        },
+        startLine: {
+          type: 'number',
+          description:
+            'Starting line number (1-indexed, inclusive). If omitted, starts from line 1.',
+        },
+        endLine: {
+          type: 'number',
+          description:
+            'Ending line number (1-indexed, inclusive). If omitted, returns until end of file.',
+        },
+        maxLines: {
+          type: 'number',
+          description:
+            'Maximum number of lines to return. Applied after startLine/endLine filtering.',
+        },
+      },
+      required: ['mcVersion', 'className'],
+    },
+  },
+  {
+    name: 'search_forge_code',
+    description:
+      'Regex search across the Forge/NeoForge patched Minecraft source — loader classes (net.minecraftforge.* / net.neoforged.*) and patched vanilla classes alike. Builds the patched tree via decompile_forge_minecraft_version automatically on first use.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        mcVersion: {
+          type: 'string',
+          description: 'Minecraft version (e.g., "1.21.1")',
+        },
+        loaderVersion: {
+          type: 'string',
+          description:
+            'Loader version, e.g. "47.3.0" (forge) or "21.1.72" (neoforge). Defaults to the recommended build (forge) or the latest stable (neoforge).',
+        },
+        loader: {
+          type: 'string',
+          enum: ['forge', 'neoforge'],
+          description: 'Loader (default: forge)',
+        },
+        query: {
+          type: 'string',
+          description: 'Search query (regex pattern or literal string)',
+        },
+        searchType: {
+          type: 'string',
+          enum: ['class', 'method', 'field', 'content', 'all'],
+          description: 'Type of search (default: all)',
+        },
+        limit: {
+          type: 'number',
+          description: 'Maximum number of results (default: 50)',
+        },
+      },
+      required: ['mcVersion', 'query'],
+    },
+  },
+  {
+    name: 'search_forge_minecraft_code',
+    description:
+      'Regex search across the Minecraft classes of the Forge/NeoForge patched tree (event hooks, injected code). Same tree as search_forge_code; built automatically on first use.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        mcVersion: {
+          type: 'string',
+          description: 'Minecraft version (e.g., "1.21.1")',
+        },
+        loaderVersion: {
+          type: 'string',
+          description:
+            'Loader version, e.g. "47.3.0" (forge) or "21.1.72" (neoforge). Defaults to the recommended build (forge) or the latest stable (neoforge).',
+        },
+        loader: {
+          type: 'string',
+          enum: ['forge', 'neoforge'],
+          description: 'Loader (default: forge)',
+        },
+        query: {
+          type: 'string',
+          description: 'Search query (regex pattern or literal string)',
+        },
+        searchType: {
+          type: 'string',
+          enum: ['class', 'method', 'field', 'content', 'all'],
+          description: 'Type of search (default: all)',
+        },
+        limit: {
+          type: 'number',
+          description: 'Maximum number of results (default: 50)',
+        },
+      },
+      required: ['mcVersion', 'query'],
+    },
+  },
+  {
+    name: 'compare_vanilla_vs_forge',
+    description:
+      'Compare vanilla Minecraft against the Forge/NeoForge patched tree. Without `className`: class-level additions/removals (the loader packages plus patched classes). With `className`: AST-level member diff of the class package (added/removed/changed methods and fields). The vanilla mojmap decompile is built automatically on first use. Builds the patched tree via decompile_forge_minecraft_version automatically as well.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        mcVersion: {
+          type: 'string',
+          description: 'Minecraft version (e.g., "1.21.1")',
+        },
+        loaderVersion: {
+          type: 'string',
+          description:
+            'Loader version, e.g. "47.3.0" (forge) or "21.1.72" (neoforge). Defaults to the recommended build (forge) or the latest stable (neoforge).',
+        },
+        loader: {
+          type: 'string',
+          enum: ['forge', 'neoforge'],
+          description: 'Loader (default: forge)',
+        },
+        className: {
+          type: 'string',
+          description:
+            'Single class to diff in detail (AST-level; narrows the comparison to the class package). Omit to list class-level additions/removals.',
+        },
+      },
+      required: ['mcVersion'],
+    },
+  },
 ];
 
 // Tool handlers
+
+/**
+ * Apply startLine/endLine/maxLines filtering to a class source, prepending a
+ * metadata header when any filter is active. Shared by get_minecraft_source
+ * and the Forge patched-source getters.
+ */
+function applySourceLineFilters(params: {
+  source: string;
+  className: string;
+  version: string;
+  mapping: string;
+  startLine?: number;
+  endLine?: number;
+  maxLines?: number;
+}): string {
+  const { source, className, version, mapping, startLine, endLine, maxLines } = params;
+
+  if (startLine === undefined && endLine === undefined && maxLines === undefined) {
+    return source;
+  }
+
+  const lines = source.split('\n');
+  const totalLines = lines.length;
+
+  // Calculate effective start and end indices (convert to 0-indexed)
+  const effectiveStart = startLine !== undefined ? Math.max(0, startLine - 1) : 0;
+  const effectiveEnd = endLine !== undefined ? Math.min(lines.length, endLine) : lines.length;
+
+  // Slice the lines based on startLine and endLine
+  let filteredLines = lines.slice(effectiveStart, effectiveEnd);
+
+  // Apply maxLines limit if specified
+  if (maxLines !== undefined && filteredLines.length > maxLines) {
+    filteredLines = filteredLines.slice(0, maxLines);
+  }
+
+  const returnedLines = filteredLines.length;
+  const actualStartLine = effectiveStart + 1;
+  const actualEndLine = effectiveStart + returnedLines;
+
+  const metadataLines = [
+    `// Source: ${className}`,
+    `// Version: ${version} (${mapping})`,
+    `// Lines: ${actualStartLine}-${actualEndLine} of ${totalLines} total`,
+    `// Filtered: startLine=${startLine ?? 1}, endLine=${endLine ?? totalLines}, maxLines=${maxLines ?? 'none'}`,
+  ];
+
+  return `${metadataLines.join('\n')}\n${filteredLines.join('\n')}`;
+}
+
+/**
+ * Read a class's source directly from a cached patched tree (mojmap). The tree
+ * must already exist — callers run the forge-source pipeline first.
+ */
+function readPatchedClassSource(cacheKey: string, className: string): string {
+  // Cheap path-traversal guard: a class name only ever maps under the tree root
+  if (className.includes('..') || className.startsWith('/') || className.includes('\\')) {
+    throw new ClassNotFoundError(className, cacheKey, 'Invalid class name');
+  }
+  const fullPath = join(getDecompiledPath(cacheKey, 'mojmap'), classNameToPath(className));
+  if (!existsSync(fullPath)) {
+    throw new ClassNotFoundError(className, cacheKey, `Class file not found at ${fullPath}`);
+  }
+  logger.debug(`Reading patched class source: ${fullPath}`);
+  return readFileSync(fullPath, 'utf8');
+}
+
 export async function handleGetMinecraftSource(args: unknown) {
   const { version, className, mapping, startLine, endLine, maxLines } =
     GetMinecraftSourceSchema.parse(args);
@@ -874,47 +1278,15 @@ export async function handleGetMinecraftSource(args: unknown) {
       mapping as MappingType,
     );
 
-    // Apply line filtering if any filter parameters are provided
-    let filteredSource = fullSource;
-    let totalLines = 0;
-    let returnedLines = 0;
-    let actualStartLine = 1;
-    let actualEndLine = 0;
-
-    if (startLine !== undefined || endLine !== undefined || maxLines !== undefined) {
-      const lines = fullSource.split('\n');
-      totalLines = lines.length;
-
-      // Calculate effective start and end indices (convert to 0-indexed)
-      const effectiveStart = startLine !== undefined ? Math.max(0, startLine - 1) : 0;
-      const effectiveEnd = endLine !== undefined ? Math.min(lines.length, endLine) : lines.length;
-
-      // Slice the lines based on startLine and endLine
-      let filteredLines = lines.slice(effectiveStart, effectiveEnd);
-
-      // Apply maxLines limit if specified
-      if (maxLines !== undefined && filteredLines.length > maxLines) {
-        filteredLines = filteredLines.slice(0, maxLines);
-      }
-
-      filteredSource = filteredLines.join('\n');
-      returnedLines = filteredLines.length;
-      actualStartLine = effectiveStart + 1;
-      actualEndLine = effectiveStart + returnedLines;
-
-      // Build metadata header for filtered results
-      const metadataLines = [
-        `// Source: ${className}`,
-        `// Version: ${version} (${mapping})`,
-        `// Lines: ${actualStartLine}-${actualEndLine} of ${totalLines} total`,
-        startLine !== undefined || endLine !== undefined || maxLines !== undefined
-          ? `// Filtered: startLine=${startLine ?? 1}, endLine=${endLine ?? totalLines}, maxLines=${maxLines ?? 'none'}`
-          : '',
-        '',
-      ].filter(Boolean);
-
-      filteredSource = metadataLines.join('\n') + filteredSource;
-    }
+    const filteredSource = applySourceLineFilters({
+      source: fullSource,
+      className,
+      version,
+      mapping,
+      startLine,
+      endLine,
+      maxLines,
+    });
 
     return {
       content: [
@@ -1264,6 +1636,109 @@ export function classifySearchHits(
   return classified;
 }
 
+/**
+ * Regex-search a decompiled source tree. Shared by search_minecraft_code and
+ * the Forge patched-source search wrappers (same tree semantics, opaque key).
+ */
+function searchDecompiledTree(
+  version: string,
+  mapping: string,
+  query: string,
+  searchType: 'class' | 'method' | 'field' | 'content' | 'all',
+  limit: number,
+): Array<{ type: string; name: string; file: string; line?: number; context?: string }> {
+  const decompiledPath = getDecompiledPath(version, mapping);
+  const results: Array<{
+    type: string;
+    name: string;
+    file: string;
+    line?: number;
+    context?: string;
+  }> = [];
+
+  // Recursively search files
+  const searchDir = (dir: string) => {
+    if (results.length >= limit) return;
+
+    const entries = readdirSync(dir, { withFileTypes: true });
+
+    for (const entry of entries) {
+      if (results.length >= limit) break;
+
+      const fullPath = join(dir, entry.name);
+
+      if (entry.isDirectory()) {
+        searchDir(fullPath);
+      } else if (entry.name.endsWith('.java')) {
+        const relativePath = relative(decompiledPath, fullPath);
+        const className = relativePath.replace(/\//g, '.').replace(/\.java$/, '');
+
+        // For class search, match against file name
+        if (searchType === 'class' || searchType === 'all') {
+          const regex = new RegExp(query, 'i');
+          if (regex.test(entry.name.replace('.java', ''))) {
+            results.push({
+              type: 'class',
+              name: className,
+              file: relativePath,
+            });
+          }
+        }
+
+        // For content/method/field search, read file and search
+        if (
+          (searchType === 'content' ||
+            searchType === 'method' ||
+            searchType === 'field' ||
+            searchType === 'all') &&
+          results.length < limit
+        ) {
+          const content = readFileSync(fullPath, 'utf8');
+          const lines = content.split('\n');
+          const regex = new RegExp(query, 'gi');
+
+          // First pass: collect matching line numbers (1-based). The stateful
+          // `gi` regex is exercised in source order exactly as before, so the
+          // raw hit set is unchanged.
+          const hitLines: number[] = [];
+          for (let i = 0; i < lines.length; i++) {
+            if (regex.test(lines[i])) {
+              hitLines.push(i + 1);
+            }
+          }
+
+          // Second pass: classify each hit via the file's AST (parsed once)
+          // and apply the searchType filter. This replaces the fragile
+          // access-modifier declaration regexes, which missed package-private
+          // members, generics/qualified types, constructors, and multi-line
+          // declarations. Files yielding no hits are never parsed.
+          if (hitLines.length > 0) {
+            const classification = classifySearchHits(content, hitLines);
+            for (const hitLine of hitLines) {
+              if (results.length >= limit) break;
+              const type = classification.get(hitLine) ?? 'content';
+              // 'all' and 'content' return every hit; 'method'/'field' keep
+              // only AST-classified hits of that type.
+              if (searchType === 'all' || searchType === 'content' || type === searchType) {
+                results.push({
+                  type,
+                  name: className,
+                  file: relativePath,
+                  line: hitLine,
+                  context: lines[hitLine - 1].trim().substring(0, 200),
+                });
+              }
+            }
+          }
+        }
+      }
+    }
+  };
+
+  searchDir(decompiledPath);
+  return results;
+}
+
 // Handler for search_minecraft_code
 export async function handleSearchMinecraftCode(args: unknown) {
   const { version, query, searchType, mapping, limit = 50 } = SearchMinecraftCodeSchema.parse(args);
@@ -1286,95 +1761,7 @@ export async function handleSearchMinecraftCode(args: unknown) {
       };
     }
 
-    const decompiledPath = getDecompiledPath(version, mapping);
-    const results: Array<{
-      type: string;
-      name: string;
-      file: string;
-      line?: number;
-      context?: string;
-    }> = [];
-
-    // Recursively search files
-    const searchDir = (dir: string) => {
-      if (results.length >= limit) return;
-
-      const entries = readdirSync(dir, { withFileTypes: true });
-
-      for (const entry of entries) {
-        if (results.length >= limit) break;
-
-        const fullPath = join(dir, entry.name);
-
-        if (entry.isDirectory()) {
-          searchDir(fullPath);
-        } else if (entry.name.endsWith('.java')) {
-          const relativePath = relative(decompiledPath, fullPath);
-          const className = relativePath.replace(/\//g, '.').replace(/\.java$/, '');
-
-          // For class search, match against file name
-          if (searchType === 'class' || searchType === 'all') {
-            const regex = new RegExp(query, 'i');
-            if (regex.test(entry.name.replace('.java', ''))) {
-              results.push({
-                type: 'class',
-                name: className,
-                file: relativePath,
-              });
-            }
-          }
-
-          // For content/method/field search, read file and search
-          if (
-            (searchType === 'content' ||
-              searchType === 'method' ||
-              searchType === 'field' ||
-              searchType === 'all') &&
-            results.length < limit
-          ) {
-            const content = readFileSync(fullPath, 'utf8');
-            const lines = content.split('\n');
-            const regex = new RegExp(query, 'gi');
-
-            // First pass: collect matching line numbers (1-based). The stateful
-            // `gi` regex is exercised in source order exactly as before, so the
-            // raw hit set is unchanged.
-            const hitLines: number[] = [];
-            for (let i = 0; i < lines.length; i++) {
-              if (regex.test(lines[i])) {
-                hitLines.push(i + 1);
-              }
-            }
-
-            // Second pass: classify each hit via the file's AST (parsed once)
-            // and apply the searchType filter. This replaces the fragile
-            // access-modifier declaration regexes, which missed package-private
-            // members, generics/qualified types, constructors, and multi-line
-            // declarations. Files yielding no hits are never parsed.
-            if (hitLines.length > 0) {
-              const classification = classifySearchHits(content, hitLines);
-              for (const hitLine of hitLines) {
-                if (results.length >= limit) break;
-                const type = classification.get(hitLine) ?? 'content';
-                // 'all' and 'content' return every hit; 'method'/'field' keep
-                // only AST-classified hits of that type.
-                if (searchType === 'all' || searchType === 'content' || type === searchType) {
-                  results.push({
-                    type,
-                    name: className,
-                    file: relativePath,
-                    line: hitLine,
-                    context: lines[hitLine - 1].trim().substring(0, 200),
-                  });
-                }
-              }
-            }
-          }
-        }
-      }
-    };
-
-    searchDir(decompiledPath);
+    const results = searchDecompiledTree(version, mapping, query, searchType, limit);
 
     return {
       content: [
@@ -2504,6 +2891,294 @@ export async function handleSearchModCode(args: unknown) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Phase 4 handlers (Forge/NeoForge patched source)
+// ---------------------------------------------------------------------------
+
+export async function handleListForgeVersions(args: unknown) {
+  const { mcVersion, loader = 'forge', forceRefresh } = ListForgeVersionsSchema.parse(args);
+
+  logger.info(`Listing ${loader} versions for Minecraft ${mcVersion}`);
+
+  try {
+    const { entries, source } = await getForgeMaven().listVersions(mcVersion, loader, forceRefresh);
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(
+            {
+              mcVersion,
+              loader,
+              source,
+              count: entries.length,
+              versions: entries,
+            },
+            null,
+            2,
+          ),
+        },
+      ],
+    };
+  } catch (error) {
+    logger.error('Failed to list Forge/NeoForge versions', error);
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+}
+
+export async function handleDecompileForgeMinecraftVersion(args: unknown) {
+  const {
+    mcVersion,
+    loaderVersion,
+    loader = 'forge',
+    force,
+  } = DecompileForgeMinecraftVersionSchema.parse(args);
+
+  logger.info(
+    `Building ${loader} patched source for ${mcVersion}${loaderVersion ? ` (${loaderVersion})` : ' (default version)'}`,
+  );
+
+  try {
+    const result = await getForgeSourceService().ensurePatchedSource(
+      mcVersion,
+      loaderVersion,
+      loader,
+      force,
+    );
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(
+            {
+              status: result.status,
+              cacheKey: result.cacheKey,
+              mapping: 'mojmap',
+              mode: result.mode,
+              outputDir: result.outputDir,
+              durationMs: result.durationMs,
+              mcVersion,
+              loader,
+              loaderVersion: result.resolved.loaderVersion,
+              loaderArtifact: result.resolved.artifact,
+            },
+            null,
+            2,
+          ),
+        },
+      ],
+    };
+  } catch (error) {
+    logger.error('Failed to build Forge/NeoForge patched source', error);
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+}
+
+/** Shared body of get_forge_source / get_forge_minecraft_source — one tree, two tool intents. */
+async function getForgeClassSource(toolName: string, args: unknown) {
+  const {
+    mcVersion,
+    loaderVersion,
+    loader = 'forge',
+    className,
+    startLine,
+    endLine,
+    maxLines,
+  } = GetForgeSourceSchema.parse(args);
+
+  logger.info(`[${toolName}] ${className} for ${mcVersion} (${loader})`);
+
+  try {
+    const ensure = await getForgeSourceService().ensurePatchedSource(
+      mcVersion,
+      loaderVersion,
+      loader,
+    );
+    const fullSource = readPatchedClassSource(ensure.cacheKey, className);
+
+    const text = applySourceLineFilters({
+      source: fullSource,
+      className,
+      version: ensure.cacheKey,
+      mapping: 'mojmap',
+      startLine,
+      endLine,
+      maxLines,
+    });
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text,
+        },
+      ],
+    };
+  } catch (error) {
+    logger.error(`[${toolName}] failed`, error);
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+}
+
+export function handleGetForgeSource(args: unknown) {
+  return getForgeClassSource('get_forge_source', args);
+}
+
+export function handleGetForgeMinecraftSource(args: unknown) {
+  return getForgeClassSource('get_forge_minecraft_source', args);
+}
+
+/** Shared body of search_forge_code / search_forge_minecraft_code — same tree, two tool intents. */
+async function searchForgeCode(toolName: string, args: unknown) {
+  const {
+    mcVersion,
+    loaderVersion,
+    loader = 'forge',
+    query,
+    searchType = 'all',
+    limit = 50,
+  } = SearchForgeCodeSchema.parse(args);
+
+  logger.info(`[${toolName}] ${query} (${searchType}) in ${mcVersion} (${loader})`);
+
+  try {
+    const ensure = await getForgeSourceService().ensurePatchedSource(
+      mcVersion,
+      loaderVersion,
+      loader,
+    );
+    const results = searchDecompiledTree(ensure.cacheKey, 'mojmap', query, searchType, limit);
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(
+            {
+              query,
+              searchType,
+              version: ensure.cacheKey,
+              mapping: 'mojmap',
+              loader,
+              count: results.length,
+              results,
+            },
+            null,
+            2,
+          ),
+        },
+      ],
+    };
+  } catch (error) {
+    logger.error(`[${toolName}] failed`, error);
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+}
+
+export function handleSearchForgeCode(args: unknown) {
+  return searchForgeCode('search_forge_code', args);
+}
+
+export function handleSearchForgeMinecraftCode(args: unknown) {
+  return searchForgeCode('search_forge_minecraft_code', args);
+}
+
+export async function handleCompareVanillaVsForge(args: unknown) {
+  const {
+    mcVersion,
+    loaderVersion,
+    loader = 'forge',
+    className,
+  } = CompareVanillaVsForgeSchema.parse(args);
+
+  logger.info(`Comparing vanilla ${mcVersion} vs ${loader} patched`);
+
+  try {
+    const ensure = await getForgeSourceService().ensurePatchedSource(
+      mcVersion,
+      loaderVersion,
+      loader,
+    );
+
+    // The vanilla side needs a mojmap decompile too — cached if already built.
+    await getDecompileService().decompileVersion(mcVersion, 'mojmap');
+
+    if (className) {
+      // compare_versions_detailed takes a package filter — narrow to the class's package
+      const dotIndex = className.lastIndexOf('.');
+      if (dotIndex <= 0) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Error: "${className}" is not a fully qualified class name (expected e.g. "net.minecraft.world.entity.Entity").`,
+            },
+          ],
+          isError: true,
+        };
+      }
+      return handleCompareVersionsDetailed({
+        fromVersion: mcVersion,
+        toVersion: ensure.cacheKey,
+        mapping: 'mojmap',
+        packages: [className.slice(0, dotIndex)],
+      });
+    }
+
+    return handleCompareVersions({
+      fromVersion: mcVersion,
+      toVersion: ensure.cacheKey,
+      mapping: 'mojmap',
+      category: 'classes',
+    });
+  } catch (error) {
+    logger.error('Failed to compare vanilla vs patched', error);
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+}
+
 // Tool router
 export async function handleToolCall(name: string, args: unknown) {
   switch (name) {
@@ -2551,6 +3226,21 @@ export async function handleToolCall(name: string, args: unknown) {
       return handleIndexMod(args);
     case 'search_mod_indexed':
       return handleSearchModIndexed(args);
+    // Phase 4 tools (Forge/NeoForge patched source)
+    case 'list_forge_versions':
+      return handleListForgeVersions(args);
+    case 'decompile_forge_minecraft_version':
+      return handleDecompileForgeMinecraftVersion(args);
+    case 'get_forge_source':
+      return handleGetForgeSource(args);
+    case 'get_forge_minecraft_source':
+      return handleGetForgeMinecraftSource(args);
+    case 'search_forge_code':
+      return handleSearchForgeCode(args);
+    case 'search_forge_minecraft_code':
+      return handleSearchForgeMinecraftCode(args);
+    case 'compare_vanilla_vs_forge':
+      return handleCompareVanillaVsForge(args);
     default:
       throw new Error(`Unknown tool: ${name}`);
   }

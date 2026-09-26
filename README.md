@@ -145,9 +145,10 @@ Output is always JSON: `{ "success": true, "tool": "...", "result": ... }` on su
 | **Mod JAR analysis** | Analyze Fabric, Quilt, Forge, and NeoForge mods — metadata, mixins, dependencies, entry points — and decompile them |
 | **Mixin, Access Widener & Access Transformer validation** | Validate Mixin annotations, Fabric `.accesswidener` files, and Forge/NeoForge access transformer `.cfg` files with error reporting and fix suggestions. Access widener/transformer checks run against the game's real bytecode, catching inherited members, record constructors, inner-class reachability, and conflicts across multiple AT files |
 | **Version diff** | Class-level and AST-level diff between any two Minecraft versions — method signatures, field changes, breaking changes |
+| **Forge/NeoForge patched source** | Build and browse the Minecraft source as modified by Forge/NeoForge (loader sources included), diff it against vanilla — fetched automatically via NeoFormRuntime |
 | **Full-text search** | SQLite FTS5 indexes for fast BM25-ranked search across Minecraft and mod source |
 
-21 tools across 4 categories — see [docs/tools.md](docs/tools.md) for the full reference.
+28 tools across 5 categories — see [docs/tools.md](docs/tools.md) for the full reference.
 
 </div>
 
@@ -160,6 +161,7 @@ Output is always JSON: `{ "success": true, "tool": "...", "result": ... }` on su
 | Workflow | Steps |
 | --- | --- |
 | **First-time source access** | Call `get_minecraft_source` — server downloads, remaps, and decompiles (~5 min first run). Subsequent requests for the same version return in ~50 ms from cache. |
+| **View Forge/NeoForge-modified Minecraft code** | `list_forge_versions` (optional) → `get_forge_source` / `get_forge_minecraft_source` — the patched tree (loader sources included, mojmap-only) builds automatically on first use via NeoFormRuntime (Java 21; first build takes minutes). Then `search_forge_code` / `compare_vanilla_vs_forge`, or any vanilla tool with the version key `1.21.1-neoforge-21.1.72`. |
 | **Analyze a third-party mod** | `analyze_mod_jar` → `remap_mod_jar` → `decompile_mod_jar` → `search_mod_code` or `index_mod` + `search_mod_indexed` |
 | **Validate a Fabric mixin** | `analyze_mixin` with your Java source or file path — validates targets, injection points, and method selectors against the decompiled MC version. |
 | **Find breaking changes between versions** | `compare_versions` for a high-level overview, then `compare_versions_detailed` scoped to specific packages for full AST-level diffs. |

@@ -10,6 +10,7 @@ This is a **Model Context Protocol (MCP) server** that provides AI assistants wi
 
 - **Phase 1 & 2 complete** (core services, remap/decompile/search/compare) as of 2025-12-06; 29 integration tests pass end-to-end.
 - **Phase 3 complete** (third-party mod analysis) as of 2025-12-15; includes full mod decompilation, search, and indexing capabilities with WSL support.
+- **Phase 4 complete** (Forge/NeoForge patched source) as of 2026-09-27; auto-fetches and builds patched MC source + loader source via NeoFormRuntime (see `forge-source-service.ts`).
 
 ## Architecture
 
@@ -104,13 +105,14 @@ This is a **Model Context Protocol (MCP) server** that provides AI assistants wi
 - `jars/` - Client and server JARs
   - `minecraft_client.{version}.jar`
   - `minecraft_server.{version}.jar`
+  - `patched/{key}/` - NFRT artifacts for auto-built patched trees (`gameSourcesWithNeoForge.jar` + `gameJarWithNeoForge.jar`)
 - `mappings/` - Mapping files (Tiny format)
 - `remapped/` - Remapped JARs
 - `decompiled/{version}/{mapping}/` - Decompiled source code
 - `registry/{version}/` - Registry data
-- `resources/` - Java tool JARs (VineFlower, tiny-remapper)
+- `resources/` - Java tool JARs (VineFlower, tiny-remapper; NeoFormRuntime downloaded lazily on first Forge-tool use)
 - Central cache is shared across workspaces; expect ~400–450 MB per MC version (JAR + mappings + remapped + decompiled + registry).
-- Patched-MC variants (Forge/NeoForge — see `decompile_minecraft_version`'s `jarPath`) reuse the same `decompiled/{version}/{mapping}/` layout under a version key like `1.21.1-neoforge-21.1.72`, adding ~250–400 MB per variant on top of vanilla.
+- Patched-MC variants (Forge/NeoForge — manual via `decompile_minecraft_version`'s `jarPath`, or automatic via `decompile_forge_minecraft_version`) reuse the same `decompiled/{version}/{mapping}/` layout under a version key like `1.21.1-neoforge-21.1.72`, adding ~250–400 MB per variant on top of vanilla (plus NFRT's own cache in `~/.neoformruntime`).
 
 ## Build & ESM Requirements
 
@@ -225,6 +227,15 @@ PATCHED_VERSION=1.21.1-neoforge-21.1.72 \
 PATCHED_MC_VERSION=1.21.1 \
 PATCHED_LOADER=neoforge \
 npm run test:manual:patched
+```
+
+### Forge Pipeline Suite (`__tests__/manual/forge/`)
+
+E2E for the auto-fetch patched-source pipeline (`decompile_forge_minecraft_version` and friends — real NFRT run, Java 21+ required). Skips unless `FORGE_E2E=1`. Target configurable via `FORGE_MC` / `FORGE_LOADER` / `FORGE_LOADER_VERSION` (defaults: NeoForge 1.21.1 / 21.1.72).
+
+```bash
+npm run test:manual:forge                       # NeoForge 1.21.1
+FORGE_E2E=1 FORGE_LOADER=forge FORGE_MC=1.20.1 FORGE_LOADER_VERSION=47.3.0 npm run test:manual -- __tests__/manual/forge
 ```
 
 ## Common Tasks
@@ -342,6 +353,17 @@ Deterministic central-directory scan: any `.class` entry → decompile via VineF
 18. **`search_mod_code`** - Search decompiled mod source code
 19. **`index_mod`** - Create full-text search index for mod source
 20. **`search_mod_indexed`** - Fast FTS5 search on indexed mod source
+
+### Phase 4 Tools (Forge/NeoForge Patched Source)
+21. **`list_forge_versions`** - List Forge/NeoForge loader versions for an MC version (loader Maven metadata, 24h in-process TTL; Forge recommended via promotions_slim; NeoForge `-beta` marked prerelease)
+22. **`decompile_forge_minecraft_version`** - Build the patched MC source tree automatically. Runs NeoFormRuntime (`nfrt run --dist joined --neoforge <gav>:userdev`) requesting `gameSourcesWithNeoForge` (merged MC+loader sources zip → `decompileLocalJar` extracts it) and `gameJarWithNeoForge` (recompiled JAR → `registerAsRemappedJar`, keeps AT validation working). Forge GAVs resolve via `--add-repository https://maven.minecraftforge.net`. Cache key `<mc>-<loader>-<loaderVersion>` (existing convention); NFRT artifacts cached in `jars/patched/<key>/` so `force` rebuilds in seconds without re-running NFRT. Lazy: the `get_*`/`search_*`/`compare_*` wrappers below call `ensurePatchedSource` first, so they also work on a cold cache.
+23. **`get_forge_source`** - Source of a loader class (`net.minecraftforge.*` / `net.neoforged.*`) from the patched tree
+24. **`get_forge_minecraft_source`** - Source of a MC class as modified by Forge/NeoForge patches (same tree, same implementation as 23 — distinct tool name for intent clarity)
+25. **`search_forge_code`** - Regex search across the patched tree (shared `searchDecompiledTree` with `search_minecraft_code`)
+26. **`search_forge_minecraft_code`** - Same, described for patched vanilla classes
+27. **`compare_vanilla_vs_forge`** - Delegates to `compare_versions` (classes) or `compare_versions_detailed` (AST, `className` narrows to its package); auto-decompiles the vanilla mojmap side
+
+All patched tools are mojmap-only. Known limit: NeoForge MC 1.20.1 predates the `net.neoforged:neoforge` artifact — use loader `forge` for 1.20.1. NFRT needs Java 21+; its own cache lives in `~/.neoformruntime`.
 
 #### `analyze_mod_jar` Tool
 

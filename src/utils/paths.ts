@@ -60,6 +60,7 @@ export const paths = {
   decompiledMods: () => join(getCacheDir(), 'decompiled-mods'),
   registry: () => join(getCacheDir(), 'registry'),
   resources: () => join(getCacheDir(), 'resources'),
+  patchedJars: () => join(getCacheDir(), 'jars', 'patched'),
   database: () => join(getCacheDir(), 'cache.db'),
   logFile: () => join(getCacheDir(), 'minecraft-dev-mcp.log'),
 };

@@ -273,6 +273,12 @@ export class BytecodeDumpError extends MinecraftDevError {
 }
 
 /**
+ * Forge/NeoForge patched-source pipeline failed (version resolution or the
+ * NeoFormRuntime userdev run)
+ */
+export class ForgeSourceError extends MinecraftDevError {}
+
+/**
  * A source-bundled tool JAR (built from `tools/`) was not found on disk.
  *
  * Thrown by the bundled-JAR resolvers in `java-resources.ts` when a required
