@@ -79,10 +79,10 @@ describe('Tool Registration', () => {
     await verifyJavaVersion(17);
   }, 30000);
 
-  it('should have all 21 MCP tools defined', () => {
+  it('should have all 28 MCP tools defined', () => {
     expect(tools).toBeDefined();
     expect(Array.isArray(tools)).toBe(true);
-    expect(tools.length).toBe(21);
+    expect(tools.length).toBe(28);
 
     const toolNames = tools.map((t) => t.name);
 
@@ -118,6 +118,15 @@ describe('Tool Registration', () => {
     expect(toolNames).toContain('search_mod_code');
     expect(toolNames).toContain('index_mod');
     expect(toolNames).toContain('search_mod_indexed');
+
+    // Forge/NeoForge patched source tools
+    expect(toolNames).toContain('list_forge_versions');
+    expect(toolNames).toContain('decompile_forge_minecraft_version');
+    expect(toolNames).toContain('get_forge_source');
+    expect(toolNames).toContain('get_forge_minecraft_source');
+    expect(toolNames).toContain('search_forge_code');
+    expect(toolNames).toContain('search_forge_minecraft_code');
+    expect(toolNames).toContain('compare_vanilla_vs_forge');
   });
 
   it('should search for classes in decompiled code', async () => {

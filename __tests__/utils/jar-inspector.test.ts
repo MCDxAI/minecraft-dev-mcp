@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import AdmZip from 'adm-zip';
@@ -100,6 +100,32 @@ describe('jar-inspector', () => {
       expect(existsSync(join(out, 'assets/icon.png'))).toBe(false);
 
       expect(readFileSync(join(out, 'net/minecraft/Foo.java'), 'utf8')).toContain('class Foo');
+    });
+
+    it('replaces a stale output directory wholesale', () => {
+      const jar = join(workDir, 'src.jar');
+      makeJar([{ name: 'net/minecraft/New.java', content: 'class New {}' }], jar);
+      const out = join(workDir, 'out');
+      mkdirSync(join(out, 'net/minecraft'), { recursive: true });
+      writeFileSync(join(out, 'net/minecraft/Stale.java'), 'class Stale {}');
+
+      extractSourcesJar(jar, out);
+
+      expect(existsSync(join(out, 'net/minecraft/New.java'))).toBe(true);
+      expect(existsSync(join(out, 'net/minecraft/Stale.java'))).toBe(false);
+      // no staging leftovers
+      expect(existsSync(`${out}.extracting`)).toBe(false);
+    });
+
+    it('leaves no output directory behind when the JAR cannot be read', () => {
+      const jar = join(workDir, 'broken.jar');
+      writeFileSync(jar, 'not a zip');
+      const out = join(workDir, 'out');
+
+      expect(() => extractSourcesJar(jar, out)).toThrow();
+      // a half-written output dir would read as a warm cache forever
+      expect(existsSync(out)).toBe(false);
+      expect(existsSync(`${out}.extracting`)).toBe(false);
     });
   });
 });

@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Forge/NeoForge patched Minecraft source tools (Phase 4, 7 tools).** The
+  server can now fetch, build, and serve the Minecraft source **as modified by
+  Forge/NeoForge** (event hooks, injections) together with the loader's own
+  source (`net.minecraftforge.*` / `net.neoforged.*`), mojmap-only. The
+  pipeline wraps NeoFormRuntime (`neoform-runtime` 2.0.31, downloaded on
+  demand; `--dist joined --neoforge <gav>:userdev --write-result`), requesting
+  `gameSourcesWithNeoForge` (merged sources zip, extracted directly — no
+  re-decompile loss) and `gameJarWithNeoForge` (registered as the key's
+  remapped JAR so `validate_access_transformer` keeps working). Forge artifacts
+  resolve through `--add-repository` on the Forge Maven. New tools:
+  `list_forge_versions` (loader Maven metadata, Forge recommended builds via
+  promotions_slim, NeoForge `-beta` prerelease markers, in-process 24h TTL),
+  `decompile_forge_minecraft_version`, `get_forge_source`,
+  `get_forge_minecraft_source`, `search_forge_code`,
+  `search_forge_minecraft_code`, `compare_vanilla_vs_forge`. All of them are
+  thin wrappers over the existing patched-JAR machinery: the tree lands under
+  the same opaque `<mc>-<loader>-<loaderVersion>` key, so every vanilla tool
+  (`get_minecraft_source`, `search_minecraft_code`, `index_minecraft_version`,
+  `search_indexed`, `compare_versions*`) reads it unchanged. NFRT artifacts are
+  cached under `jars/patched/<key>/` so `force` rebuilds in seconds. Known
+  limits: NeoForge MC 1.20.1 is unsupported (legacy artifact — use `forge`);
+  NFRT itself requires Java 21. Shared handler internals
+  (`applySourceLineFilters`, `searchDecompiledTree`) were extracted from
+  `get_minecraft_source`/`search_minecraft_code` so behavior is unchanged.
+  Manual E2E: `npm run test:manual:forge` (NeoForge 1.21.1 verified
+  end-to-end locally; the suite is env-configurable for Forge 1.20.1).
+
 ### Fixed
 
 - **Flaky cross-file AT conflict test on a cold CI cache.** The tool-level test

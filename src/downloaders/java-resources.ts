@@ -12,15 +12,18 @@ import { downloadFile } from './http-client.js';
  * Sources:
  * - Vineflower: https://github.com/Vineflower/vineflower/releases
  * - tiny-remapper: https://maven.fabricmc.net/net/fabricmc/tiny-remapper/
+ * - NeoFormRuntime: https://maven.neoforged.net/releases/net/neoforged/neoform-runtime/
  * - mapping-io-cli: Bundled with package (tools/mapping-io-cli/)
  * - bytecode-dumper: Bundled with package (tools/bytecode-dumper/)
  */
 
 const VINEFLOWER_VERSION = '1.11.2';
 const TINY_REMAPPER_VERSION = '0.10.3'; // Using latest from Maven
+const NFRT_VERSION = '2.0.31';
 
 const VINEFLOWER_URL = `https://github.com/Vineflower/vineflower/releases/download/${VINEFLOWER_VERSION}/vineflower-${VINEFLOWER_VERSION}.jar`;
 const TINY_REMAPPER_URL = `https://maven.fabricmc.net/net/fabricmc/tiny-remapper/${TINY_REMAPPER_VERSION}/tiny-remapper-${TINY_REMAPPER_VERSION}-fat.jar`;
+const NFRT_URL = `https://maven.neoforged.net/releases/net/neoforged/neoform-runtime/${NFRT_VERSION}/neoform-runtime-${NFRT_VERSION}-all.jar`;
 
 // Get the directory of this module for resolving bundled resources
 const __filename = fileURLToPath(import.meta.url);
@@ -118,6 +121,51 @@ export class JavaResourceDownloader {
       },
     });
     logger.info(`tiny-remapper downloaded to ${jarPath}`);
+    return jarPath;
+  }
+
+  /**
+   * Get NeoFormRuntime (NFRT) JAR path (download if not exists).
+   * Uses locking to prevent concurrent downloads.
+   *
+   * Deliberately NOT part of downloadAll/hasAllResources — NFRT is only needed
+   * by the Forge/NeoForge patched-source tools and is fetched lazily on first use.
+   */
+  async getNfrtJar(): Promise<string> {
+    const jarPath = join(this.resourcesDir, `neoform-runtime-${NFRT_VERSION}-all.jar`);
+
+    if (existsSync(jarPath)) {
+      logger.debug(`Using cached NeoFormRuntime at ${jarPath}`);
+      return jarPath;
+    }
+
+    // Check if download is already in progress
+    const existingDownload = this.downloadLocks.get('nfrt');
+    if (existingDownload) {
+      logger.info('Waiting for existing NeoFormRuntime download to complete');
+      return existingDownload;
+    }
+
+    // Start download with lock
+    const downloadPromise = this.doDownloadNfrt(jarPath);
+    this.downloadLocks.set('nfrt', downloadPromise);
+
+    try {
+      return await downloadPromise;
+    } finally {
+      this.downloadLocks.delete('nfrt');
+    }
+  }
+
+  private async doDownloadNfrt(jarPath: string): Promise<string> {
+    logger.info(`Downloading NeoFormRuntime ${NFRT_VERSION}...`);
+    await downloadFile(NFRT_URL, jarPath, {
+      onProgress: (downloaded, total) => {
+        const percent = ((downloaded / total) * 100).toFixed(1);
+        logger.debug(`NeoFormRuntime download progress: ${percent}%`);
+      },
+    });
+    logger.info(`NeoFormRuntime downloaded to ${jarPath}`);
     return jarPath;
   }
 

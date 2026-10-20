@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs';
+import { renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import AdmZip from 'adm-zip';
 import { ensureDir } from './file-utils.js';
@@ -60,24 +60,40 @@ export function inspectJar(jarPath: string): JarInspection {
  * Extract all .java entries from a sources JAR into outputDir, preserving
  * package paths. Skips META-INF and any non-.java files.
  *
+ * Extracts into a sibling staging directory and swaps it in at the end: a crash
+ * or killed process mid-extraction must not leave a partial tree behind, because
+ * "decompiled source exists" is an `existsSync(outputDir)` check — a half-written
+ * directory would read as a warm cache forever.
+ *
  * Returns the number of .java files written.
  */
 export function extractSourcesJar(jarPath: string, outputDir: string): number {
-  ensureDir(outputDir);
   const zip = new AdmZip(jarPath);
   const entries = zip.getEntries();
 
-  let written = 0;
-  for (const entry of entries) {
-    if (entry.isDirectory) continue;
-    const name = entry.entryName;
-    if (!name.endsWith('.java')) continue;
-    if (name.startsWith('META-INF/')) continue;
+  const stagingDir = `${outputDir}.extracting`;
+  rmSync(stagingDir, { recursive: true, force: true });
+  ensureDir(stagingDir);
 
-    const targetPath = join(outputDir, name);
-    ensureDir(dirname(targetPath));
-    writeFileSync(targetPath, entry.getData());
-    written++;
+  let written = 0;
+  try {
+    for (const entry of entries) {
+      if (entry.isDirectory) continue;
+      const name = entry.entryName;
+      if (!name.endsWith('.java')) continue;
+      if (name.startsWith('META-INF/')) continue;
+
+      const targetPath = join(stagingDir, name);
+      ensureDir(dirname(targetPath));
+      writeFileSync(targetPath, entry.getData());
+      written++;
+    }
+
+    rmSync(outputDir, { recursive: true, force: true });
+    renameSync(stagingDir, outputDir);
+  } catch (error) {
+    rmSync(stagingDir, { recursive: true, force: true });
+    throw error;
   }
 
   logger.info(`Extracted ${written} .java files from ${jarPath} to ${outputDir}`);

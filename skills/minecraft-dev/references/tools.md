@@ -236,3 +236,70 @@ Parameters:
 - `modVersion`
 - `mapping`
 - optional: `types`, `limit`
+
+## Forge / NeoForge patched Minecraft source
+
+These tools build and read the Minecraft source **as modified by Forge/NeoForge** (event hooks, injected code) plus the loader's own source (`net.minecraftforge.*` / `net.neoforged.*`), mojmap-only. The patched tree is built automatically on first use via the NeoFormRuntime pipeline (Java 21, minutes on first run) and cached under the version key `<mc>-<loader>-<loaderVersion>`, e.g. `1.21.1-neoforge-21.1.72`. Vanilla tools like `get_minecraft_source` and `search_minecraft_code` accept that key too. For MC 1.20.1 use loader `forge` (NeoForge 1.20.1 predates its own artifact).
+
+### `list_forge_versions`
+List Forge or NeoForge versions for a Minecraft version.
+
+Parameters:
+- `mcVersion`
+- optional: `loader` (default `forge`), `forceRefresh`
+
+Example:
+```bash
+minecraft-dev-cli list_forge_versions --mcVersion 1.21.1 --loader neoforge
+```
+
+### `decompile_forge_minecraft_version`
+Build the patched source tree up front (the get/search tools below also build it lazily).
+
+Parameters:
+- `mcVersion`
+- optional: `loaderVersion` (default recommended for forge / latest stable for neoforge), `loader`, `force`
+
+Example:
+```bash
+minecraft-dev-cli decompile_forge_minecraft_version --mcVersion 1.21.1 --loader neoforge --loaderVersion 21.1.72
+```
+
+### `get_forge_source`
+Get source of a loader class, e.g. `net.neoforged.neoforge.event.entity.living.LivingDamageEvent`.
+
+Parameters:
+- `mcVersion`
+- `className`
+- optional: `loaderVersion`, `loader`, `startLine`, `endLine`, `maxLines`
+
+### `get_forge_minecraft_source`
+Get a Minecraft class as patched by Forge/NeoForge, e.g. `net.minecraft.world.entity.Entity` with its event hooks.
+
+Parameters:
+- `mcVersion`
+- `className`
+- optional: `loaderVersion`, `loader`, `startLine`, `endLine`, `maxLines`
+
+### `search_forge_code`
+Regex search across the patched tree (loader + patched vanilla classes).
+
+Parameters:
+- `mcVersion`
+- `query`
+- optional: `loaderVersion`, `loader`, `searchType` (default `all`), `limit`
+
+### `search_forge_minecraft_code`
+Regex search across the patched tree's Minecraft classes. Same tree as `search_forge_code`.
+
+Parameters:
+- `mcVersion`
+- `query`
+- optional: `loaderVersion`, `loader`, `searchType`, `limit`
+
+### `compare_vanilla_vs_forge`
+Diff vanilla vs the patched tree: class additions/removals, or an AST-level member diff when `className` is given.
+
+Parameters:
+- `mcVersion`
+- optional: `loaderVersion`, `loader`, `className`
