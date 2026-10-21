@@ -999,7 +999,7 @@ export const tools = [
   {
     name: 'get_forge_source',
     description:
-      'Get source code of a loader class (net.minecraftforge.* / net.neoforged.*) from the Forge/NeoForge patched Minecraft tree — events, registries, FML internals. First call automatically builds the patched tree via decompile_forge_minecraft_version if needed. Same tree as get_forge_minecraft_source (which is aimed at patched vanilla classes).',
+      'Get source code of a class from the Forge/NeoForge patched Minecraft tree — loader classes (net.minecraftforge.* / net.neoforged.*: events, registries, FML internals) and patched vanilla classes (Minecraft classes with Forge event hooks and injections, e.g. net.minecraft.world.entity.Entity). First call automatically builds the patched tree via decompile_forge_minecraft_version if needed.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1042,91 +1042,9 @@ export const tools = [
     },
   },
   {
-    name: 'get_forge_minecraft_source',
-    description:
-      'Get source code of a Minecraft class as modified by Forge/NeoForge patches (event hooks, injections, extensions) — e.g. net.minecraft.world.entity.Entity with its Forge event calls. Same patched tree as get_forge_source; built automatically on first use.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        mcVersion: {
-          type: 'string',
-          description: 'Minecraft version (e.g., "1.21.1")',
-        },
-        loaderVersion: {
-          type: 'string',
-          description:
-            'Loader version, e.g. "47.3.0" (forge) or "21.1.72" (neoforge). Defaults to the recommended build (forge) or the latest stable (neoforge).',
-        },
-        loader: {
-          type: 'string',
-          enum: ['forge', 'neoforge'],
-          description: 'Loader (default: forge)',
-        },
-        className: {
-          type: 'string',
-          description: 'Fully qualified class name (e.g., "net.minecraft.world.entity.Entity")',
-        },
-        startLine: {
-          type: 'number',
-          description:
-            'Starting line number (1-indexed, inclusive). If omitted, starts from line 1.',
-        },
-        endLine: {
-          type: 'number',
-          description:
-            'Ending line number (1-indexed, inclusive). If omitted, returns until end of file.',
-        },
-        maxLines: {
-          type: 'number',
-          description:
-            'Maximum number of lines to return. Applied after startLine/endLine filtering.',
-        },
-      },
-      required: ['mcVersion', 'className'],
-    },
-  },
-  {
     name: 'search_forge_code',
     description:
       'Regex search across the Forge/NeoForge patched Minecraft source — loader classes (net.minecraftforge.* / net.neoforged.*) and patched vanilla classes alike. Builds the patched tree via decompile_forge_minecraft_version automatically on first use.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        mcVersion: {
-          type: 'string',
-          description: 'Minecraft version (e.g., "1.21.1")',
-        },
-        loaderVersion: {
-          type: 'string',
-          description:
-            'Loader version, e.g. "47.3.0" (forge) or "21.1.72" (neoforge). Defaults to the recommended build (forge) or the latest stable (neoforge).',
-        },
-        loader: {
-          type: 'string',
-          enum: ['forge', 'neoforge'],
-          description: 'Loader (default: forge)',
-        },
-        query: {
-          type: 'string',
-          description: 'Search query (regex pattern or literal string)',
-        },
-        searchType: {
-          type: 'string',
-          enum: ['class', 'method', 'field', 'content', 'all'],
-          description: 'Type of search (default: all)',
-        },
-        limit: {
-          type: 'number',
-          description: 'Maximum number of results (default: 50)',
-        },
-      },
-      required: ['mcVersion', 'query'],
-    },
-  },
-  {
-    name: 'search_forge_minecraft_code',
-    description:
-      'Regex search across the Minecraft classes of the Forge/NeoForge patched tree (event hooks, injected code). Same tree as search_forge_code; built automatically on first use.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -2992,8 +2910,8 @@ export async function handleDecompileForgeMinecraftVersion(args: unknown) {
   }
 }
 
-/** Shared body of get_forge_source / get_forge_minecraft_source — one tree, two tool intents. */
-async function getForgeClassSource(toolName: string, args: unknown) {
+/** get_forge_source: read one class from the Forge/NeoForge patched tree, building it on first use. */
+export async function handleGetForgeSource(args: unknown) {
   const {
     mcVersion,
     loaderVersion,
@@ -3004,7 +2922,7 @@ async function getForgeClassSource(toolName: string, args: unknown) {
     maxLines,
   } = GetForgeSourceSchema.parse(args);
 
-  logger.info(`[${toolName}] ${className} for ${mcVersion} (${loader})`);
+  logger.info(`[get_forge_source] ${className} for ${mcVersion} (${loader})`);
 
   try {
     const ensure = await getForgeSourceService().ensurePatchedSource(
@@ -3033,7 +2951,7 @@ async function getForgeClassSource(toolName: string, args: unknown) {
       ],
     };
   } catch (error) {
-    logger.error(`[${toolName}] failed`, error);
+    logger.error('[get_forge_source] failed', error);
     return {
       content: [
         {
@@ -3046,16 +2964,8 @@ async function getForgeClassSource(toolName: string, args: unknown) {
   }
 }
 
-export function handleGetForgeSource(args: unknown) {
-  return getForgeClassSource('get_forge_source', args);
-}
-
-export function handleGetForgeMinecraftSource(args: unknown) {
-  return getForgeClassSource('get_forge_minecraft_source', args);
-}
-
-/** Shared body of search_forge_code / search_forge_minecraft_code — same tree, two tool intents. */
-async function searchForgeCode(toolName: string, args: unknown) {
+/** search_forge_code: regex search across the Forge/NeoForge patched tree, building it on first use. */
+export async function handleSearchForgeCode(args: unknown) {
   const {
     mcVersion,
     loaderVersion,
@@ -3065,7 +2975,7 @@ async function searchForgeCode(toolName: string, args: unknown) {
     limit = 50,
   } = SearchForgeCodeSchema.parse(args);
 
-  logger.info(`[${toolName}] ${query} (${searchType}) in ${mcVersion} (${loader})`);
+  logger.info(`[search_forge_code] ${query} (${searchType}) in ${mcVersion} (${loader})`);
 
   try {
     const ensure = await getForgeSourceService().ensurePatchedSource(
@@ -3096,7 +3006,7 @@ async function searchForgeCode(toolName: string, args: unknown) {
       ],
     };
   } catch (error) {
-    logger.error(`[${toolName}] failed`, error);
+    logger.error('[search_forge_code] failed', error);
     return {
       content: [
         {
@@ -3107,14 +3017,6 @@ async function searchForgeCode(toolName: string, args: unknown) {
       isError: true,
     };
   }
-}
-
-export function handleSearchForgeCode(args: unknown) {
-  return searchForgeCode('search_forge_code', args);
-}
-
-export function handleSearchForgeMinecraftCode(args: unknown) {
-  return searchForgeCode('search_forge_minecraft_code', args);
 }
 
 export async function handleCompareVanillaVsForge(args: unknown) {
@@ -3233,12 +3135,8 @@ export async function handleToolCall(name: string, args: unknown) {
       return handleDecompileForgeMinecraftVersion(args);
     case 'get_forge_source':
       return handleGetForgeSource(args);
-    case 'get_forge_minecraft_source':
-      return handleGetForgeMinecraftSource(args);
     case 'search_forge_code':
       return handleSearchForgeCode(args);
-    case 'search_forge_minecraft_code':
-      return handleSearchForgeMinecraftCode(args);
     case 'compare_vanilla_vs_forge':
       return handleCompareVanillaVsForge(args);
     default:

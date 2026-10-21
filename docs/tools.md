@@ -1,6 +1,6 @@
 # Tools Reference
 
-28 tools organized by category.
+26 tools organized by category.
 
 ## Source Code (6 tools)
 
@@ -51,7 +51,7 @@ Analyze and decompile third-party mod JARs.
 | **index_mod** | Build a SQLite FTS5 full-text search index for decompiled mod source. Required before using `search_mod_indexed`. | `modId`, `modVersion`, `mapping` • Optional: `force` |
 | **search_mod_indexed** | Fast FTS5 search on a pre-built mod index. Supports AND, OR, NOT, phrase matching, and prefix wildcards. | `query`, `modId`, `modVersion`, `mapping` • Optional: `types`, `limit` |
 
-## Forge / NeoForge Patched Source (7 tools)
+## Forge / NeoForge Patched Source (5 tools)
 
 Read and search the Minecraft source **as modified by Forge/NeoForge** — event hooks, injections, plus the loader's own code (`net.minecraftforge.*` / `net.neoforged.*`). The patched tree (mojmap-only) is built automatically on first use via the NeoFormRuntime pipeline (needs Java 21; first build takes minutes) and is cached under the opaque version key `<mc>-<loader>-<loaderVersion>` (e.g. `1.21.1-neoforge-21.1.72`). Every vanilla tool (`get_minecraft_source`, `search_minecraft_code`, `index_minecraft_version`, `compare_versions`, `validate_access_transformer`) also works on that key.
 
@@ -59,10 +59,8 @@ Read and search the Minecraft source **as modified by Forge/NeoForge** — event
 | --- | --- | --- |
 | **list_forge_versions** | List Forge or NeoForge versions available for a Minecraft version, from the loaders' Maven repositories. Each entry carries `fullVersion` — the cache key the other tools accept. Forge entries mark the recommended build; NeoForge marks `-beta` prereleases. | `mcVersion` • Optional: `loader` (default `forge`), `forceRefresh` |
 | **decompile_forge_minecraft_version** | Build the patched Minecraft source tree (loader sources included). Runs NeoFormRuntime's userdev pipeline on first use, then caches; `force` rebuilds from the cached NFRT artifacts. | `mcVersion` • Optional: `loaderVersion` (default recommended/latest stable), `loader`, `force` |
-| **get_forge_source** | Get source of a loader class (events, registries, FML) from the patched tree. Builds the tree automatically if needed. | `mcVersion`, `className` • Optional: `loaderVersion`, `loader`, `startLine`, `endLine`, `maxLines` |
-| **get_forge_minecraft_source** | Get source of a Minecraft class as modified by Forge/NeoForge patches. Same tree as `get_forge_source`. | `mcVersion`, `className` • Optional: `loaderVersion`, `loader`, `startLine`, `endLine`, `maxLines` |
+| **get_forge_source** | Get source of a class from the patched tree: a loader class (events, registries, FML) or a Minecraft class as modified by Forge/NeoForge patches. Builds the tree automatically if needed. | `mcVersion`, `className` • Optional: `loaderVersion`, `loader`, `startLine`, `endLine`, `maxLines` |
 | **search_forge_code** | Regex search across the patched tree — loader and patched vanilla classes alike. | `mcVersion`, `query` • Optional: `loaderVersion`, `loader`, `searchType`, `limit` |
-| **search_forge_minecraft_code** | Regex search across the patched tree's Minecraft classes. Same tree as `search_forge_code`. | `mcVersion`, `query` • Optional: `loaderVersion`, `loader`, `searchType`, `limit` |
 | **compare_vanilla_vs_forge** | Diff vanilla vs the patched tree: class-level additions/removals, or AST-level member diff when `className` is given (narrows to the class package). Vanilla mojmap is decompiled automatically if needed. | `mcVersion` • Optional: `loaderVersion`, `loader`, `className` |
 
 Notes:

@@ -57,10 +57,8 @@ Use the actual Minecraft version the user is working with. Modern releases use t
 ### Forge / NeoForge patched Minecraft source
 - `list_forge_versions` — list Forge or NeoForge versions for a Minecraft version (Maven-sourced).
 - `decompile_forge_minecraft_version` — build the patched Minecraft source tree (loader sources included, mojmap-only) via NeoFormRuntime; cached under keys like `1.21.1-neoforge-21.1.72`.
-- `get_forge_source` — get source of a loader class (e.g. a NeoForge event) from the patched tree.
-- `get_forge_minecraft_source` — get a Minecraft class as modified by Forge/NeoForge patches.
+- `get_forge_source` — get source of a class from the patched tree: a loader class (e.g. a NeoForge event) or a Minecraft class as modified by Forge/NeoForge patches.
 - `search_forge_code` — regex search across the patched tree (loader + patched vanilla classes).
-- `search_forge_minecraft_code` — regex search across the patched tree's Minecraft classes.
 - `compare_vanilla_vs_forge` — diff vanilla vs the patched tree (class level or AST level per class).
 
 Use `minecraft-dev-cli list-tools` or `minecraft-dev-cli help` when you need quick CLI usage.

@@ -27,9 +27,9 @@ describe('minecraft-dev CLI (process E2E)', () => {
     expect(exitCode).toBe(0);
 
     const parsed = JSON.parse(stdout);
-    expect(parsed.total).toBe(28);
+    expect(parsed.total).toBe(26);
     expect(Array.isArray(parsed.tools)).toBe(true);
-    expect(parsed.tools).toHaveLength(28);
+    expect(parsed.tools).toHaveLength(26);
 
     const names = parsed.tools.map((t: { name: string }) => t.name);
     expect(names).toContain('get_minecraft_source');

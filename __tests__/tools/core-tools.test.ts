@@ -79,10 +79,10 @@ describe('Tool Registration', () => {
     await verifyJavaVersion(17);
   }, 30000);
 
-  it('should have all 28 MCP tools defined', () => {
+  it('should have all 26 MCP tools defined', () => {
     expect(tools).toBeDefined();
     expect(Array.isArray(tools)).toBe(true);
-    expect(tools.length).toBe(28);
+    expect(tools.length).toBe(26);
 
     const toolNames = tools.map((t) => t.name);
 
@@ -123,9 +123,7 @@ describe('Tool Registration', () => {
     expect(toolNames).toContain('list_forge_versions');
     expect(toolNames).toContain('decompile_forge_minecraft_version');
     expect(toolNames).toContain('get_forge_source');
-    expect(toolNames).toContain('get_forge_minecraft_source');
     expect(toolNames).toContain('search_forge_code');
-    expect(toolNames).toContain('search_forge_minecraft_code');
     expect(toolNames).toContain('compare_vanilla_vs_forge');
   });
 

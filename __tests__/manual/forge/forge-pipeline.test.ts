@@ -103,22 +103,18 @@ describe.skipIf(!RUN)(`Forge patched-source pipeline (${CACHE_KEY})`, () => {
     },
   );
 
-  it(
-    'returns a patched vanilla class via get_forge_minecraft_source',
-    { timeout: 600_000 },
-    async () => {
-      const res = await handleGetForgeSource({
-        mcVersion: MC_VERSION,
-        loaderVersion: LOADER_VERSION,
-        loader: LOADER,
-        className: 'net.minecraft.world.entity.Entity',
-      });
+  it('returns a patched vanilla class via get_forge_source', { timeout: 600_000 }, async () => {
+    const res = await handleGetForgeSource({
+      mcVersion: MC_VERSION,
+      loaderVersion: LOADER_VERSION,
+      loader: LOADER,
+      className: 'net.minecraft.world.entity.Entity',
+    });
 
-      const text = (res.content as Array<{ type: string; text: string }>)[0].text;
-      expect(res.isError).toBeUndefined();
-      expect(text).toContain('package net.minecraft.world.entity');
-    },
-  );
+    const text = (res.content as Array<{ type: string; text: string }>)[0].text;
+    expect(res.isError).toBeUndefined();
+    expect(text).toContain('package net.minecraft.world.entity');
+  });
 
   it('finds loader classes via search_forge_code', { timeout: 600_000 }, async () => {
     const res = await handleSearchForgeCode({

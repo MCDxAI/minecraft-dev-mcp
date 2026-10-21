@@ -266,15 +266,7 @@ minecraft-dev-cli decompile_forge_minecraft_version --mcVersion 1.21.1 --loader 
 ```
 
 ### `get_forge_source`
-Get source of a loader class, e.g. `net.neoforged.neoforge.event.entity.living.LivingDamageEvent`.
-
-Parameters:
-- `mcVersion`
-- `className`
-- optional: `loaderVersion`, `loader`, `startLine`, `endLine`, `maxLines`
-
-### `get_forge_minecraft_source`
-Get a Minecraft class as patched by Forge/NeoForge, e.g. `net.minecraft.world.entity.Entity` with its event hooks.
+Get source of a class from the patched tree: a loader class (e.g. `net.neoforged.neoforge.event.entity.living.LivingDamageEvent`) or a Minecraft class as patched by Forge/NeoForge (e.g. `net.minecraft.world.entity.Entity` with its event hooks).
 
 Parameters:
 - `mcVersion`
@@ -288,14 +280,6 @@ Parameters:
 - `mcVersion`
 - `query`
 - optional: `loaderVersion`, `loader`, `searchType` (default `all`), `limit`
-
-### `search_forge_minecraft_code`
-Regex search across the patched tree's Minecraft classes. Same tree as `search_forge_code`.
-
-Parameters:
-- `mcVersion`
-- `query`
-- optional: `loaderVersion`, `loader`, `searchType`, `limit`
 
 ### `compare_vanilla_vs_forge`
 Diff vanilla vs the patched tree: class additions/removals, or an AST-level member diff when `className` is given.

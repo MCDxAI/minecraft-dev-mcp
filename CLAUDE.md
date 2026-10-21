@@ -357,11 +357,9 @@ Deterministic central-directory scan: any `.class` entry → decompile via VineF
 ### Phase 4 Tools (Forge/NeoForge Patched Source)
 21. **`list_forge_versions`** - List Forge/NeoForge loader versions for an MC version (loader Maven metadata, 24h in-process TTL; Forge recommended via promotions_slim; NeoForge `-beta` marked prerelease)
 22. **`decompile_forge_minecraft_version`** - Build the patched MC source tree automatically. Runs NeoFormRuntime (`nfrt run --dist joined --neoforge <gav>:userdev`) requesting `gameSourcesWithNeoForge` (merged MC+loader sources zip → `decompileLocalJar` extracts it) and `gameJarWithNeoForge` (recompiled JAR → `registerAsRemappedJar`, keeps AT validation working). Forge GAVs resolve via `--add-repository https://maven.minecraftforge.net`. Cache key `<mc>-<loader>-<loaderVersion>` (existing convention); NFRT artifacts cached in `jars/patched/<key>/` so `force` rebuilds in seconds without re-running NFRT. Lazy: the `get_*`/`search_*`/`compare_*` wrappers below call `ensurePatchedSource` first, so they also work on a cold cache.
-23. **`get_forge_source`** - Source of a loader class (`net.minecraftforge.*` / `net.neoforged.*`) from the patched tree
-24. **`get_forge_minecraft_source`** - Source of a MC class as modified by Forge/NeoForge patches (same tree, same implementation as 23 — distinct tool name for intent clarity)
-25. **`search_forge_code`** - Regex search across the patched tree (shared `searchDecompiledTree` with `search_minecraft_code`)
-26. **`search_forge_minecraft_code`** - Same, described for patched vanilla classes
-27. **`compare_vanilla_vs_forge`** - Delegates to `compare_versions` (classes) or `compare_versions_detailed` (AST, `className` narrows to its package); auto-decompiles the vanilla mojmap side
+23. **`get_forge_source`** - Source of a class from the patched tree: a loader class (`net.minecraftforge.*` / `net.neoforged.*`) or a MC class as modified by Forge/NeoForge patches
+24. **`search_forge_code`** - Regex search across the patched tree, loader and patched MC classes alike (shared `searchDecompiledTree` with `search_minecraft_code`)
+25. **`compare_vanilla_vs_forge`** - Delegates to `compare_versions` (classes) or `compare_versions_detailed` (AST, `className` narrows to its package); auto-decompiles the vanilla mojmap side
 
 All patched tools are mojmap-only. Known limit: NeoForge MC 1.20.1 predates the `net.neoforged:neoforge` artifact — use loader `forge` for 1.20.1. NFRT needs Java 21+; its own cache lives in `~/.neoformruntime`.
 

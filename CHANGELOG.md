@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Forge/NeoForge patched Minecraft source tools (Phase 4, 7 tools).** The
+- **Forge/NeoForge patched Minecraft source tools (Phase 4, 5 tools).** The
   server can now fetch, build, and serve the Minecraft source **as modified by
   Forge/NeoForge** (event hooks, injections) together with the loader's own
   source (`net.minecraftforge.*` / `net.neoforged.*`), mojmap-only. The
@@ -22,8 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `list_forge_versions` (loader Maven metadata, Forge recommended builds via
   promotions_slim, NeoForge `-beta` prerelease markers, in-process 24h TTL),
   `decompile_forge_minecraft_version`, `get_forge_source`,
-  `get_forge_minecraft_source`, `search_forge_code`,
-  `search_forge_minecraft_code`, `compare_vanilla_vs_forge`. All of them are
+  `search_forge_code`, `compare_vanilla_vs_forge`. All of them are
   thin wrappers over the existing patched-JAR machinery: the tree lands under
   the same opaque `<mc>-<loader>-<loaderVersion>` key, so every vanilla tool
   (`get_minecraft_source`, `search_minecraft_code`, `index_minecraft_version`,

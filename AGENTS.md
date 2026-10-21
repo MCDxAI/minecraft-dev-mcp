@@ -26,7 +26,7 @@ Reference for AI/agent operators working in this repo. Grounded in `CLAUDE.md` a
 - Phase 1 core: `get_minecraft_source`, `decompile_minecraft_version`, `list_minecraft_versions`, `get_registry_data`.
 - Phase 2 analysis: `remap_mod_jar`, `find_mapping`, `search_minecraft_code`, `compare_versions`, `analyze_mixin`, `validate_access_widener`, `validate_access_transformer`, `compare_versions_detailed`, `index_minecraft_version`, `search_indexed`, `get_documentation`, `search_documentation`.
 - Phase 3: `analyze_mod_jar` (metadata/mixins/bytecode scan). Missing: decompile remapped mod JARs.
-- Phase 4 (Forge/NeoForge patched source, mojmap-only): `list_forge_versions`, `decompile_forge_minecraft_version`, `get_forge_source`, `get_forge_minecraft_source`, `search_forge_code`, `search_forge_minecraft_code`, `compare_vanilla_vs_forge`. Wraps NeoFormRuntime (auto-downloaded); patched tree lives under the same opaque `<mc>-<loader>-<loaderVersion>` key the vanilla tools already accept.
+- Phase 4 (Forge/NeoForge patched source, mojmap-only): `list_forge_versions`, `decompile_forge_minecraft_version`, `get_forge_source`, `search_forge_code`, `compare_vanilla_vs_forge`. Wraps NeoFormRuntime (auto-downloaded); patched tree lives under the same opaque `<mc>-<loader>-<loaderVersion>` key the vanilla tools already accept.
 
 ## Critical Behaviors & Pitfalls
 - **Registry paths**: MC ≥1.21 writes `reports/registries.json`; <1.21 uses `generated/reports/registries.json`. Names are singular (`block`, `item`, `entity`), auto-prefixed with `minecraft:` if absent.
